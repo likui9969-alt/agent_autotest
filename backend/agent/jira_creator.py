@@ -1,0 +1,141 @@
+"""
+JIRA 缺陷创建 Agent 模块
+根据故障分析结果自动生成并创建 JIRA 缺陷单
+"""
+import logging
+from backend.llm.client import LLMClient
+from backend.llm.prompts import get_template
+from backend.models.jira import JiraCreateRequest, JiraCreateResponse
+from backend.config.settings import get_settings
+
+logger = logging.getLogger("ai_rd_agent")
+
+
+class JiraCreator:
+    """JIRA 缺陷创建 Agent
+
+    使用示例：
+        creator = JiraCreator()
+        response = creator.create_issue(JiraCreateRequest(
+            title="登录页面加载超时",
+            description="用户反馈登录页面加载超过30秒",
+            log_content="...",
+            ai_analysis="可能原因：网络延迟...",
+        ))
+    """
+
+    def __init__(self):
+        self.llm_client = LLMClient()
+        self.settings = get_settings()
+        logger.info("JIRA 创建 Agent 已初始化")
+
+    def create_issue(self, request: JiraCreateRequest) -> JiraCreateResponse:
+        """创建 JIRA 缺陷单
+
+        Args:
+            request: 缺陷创建请求（含标题、描述、日志、AI分析等）
+
+        Returns:
+            创建结果（含 Issue Key 和链接）
+        """
+        logger.info(f"开始创建 JIRA 缺陷: {request.title}")
+
+        # ---- 步骤 1：用 LLM 优化缺陷描述 ----
+        if request.ai_analysis:
+            refined = self._refine_with_llm(request)
+            if refined:
+                request.description = refined
+
+        # ---- 步骤 2：调用 JIRA API 创建 Issue ----
+        if not self.settings.JIRA_URL:
+            # JIRA 未配置时返回模拟结果（开发/演示用）
+            logger.warning("JIRA 未配置，返回模拟结果")
+            return JiraCreateResponse(
+                status="success",
+                issue_key="PROJ-DEMO",
+                issue_url=f"{self.settings.JIRA_URL or 'http://jira.example.com'}/browse/PROJ-DEMO",
+                message="JIRA 未配置，此为模拟结果。实际创建请配置 JIRA_URL 等环境变量。",
+            )
+
+        try:
+            response = self._call_jira_api(request)
+            return response
+        except Exception as e:
+            logger.error(f"JIRA API 调用失败: {e}", exc_info=True)
+            return JiraCreateResponse(
+                status="failed",
+                message=f"JIRA 创建失败: {str(e)}",
+            )
+
+    def _refine_with_llm(self, request: JiraCreateRequest) -> str | None:
+        """使用 LLM 优化缺陷描述"""
+        try:
+            template = get_template("jira_creation")
+            messages = [
+                {"role": "system", "content": template.system},
+                {"role": "user", "content": template.user.format(
+                    summary=request.title,
+                    analysis=request.ai_analysis or "无",
+                    log_snippet=request.log_content[:2000] or "无",
+                )},
+            ]
+            response = self.llm_client.chat(
+                messages=messages,
+                temperature=template.temperature,
+            )
+            # 提取 LLM 返回的标题和描述
+            return response
+        except Exception as e:
+            logger.warning(f"LLM 优化缺陷描述失败: {e}")
+            return None
+
+    def _call_jira_api(self, request: JiraCreateRequest) -> JiraCreateResponse:
+        """调用 JIRA REST API 创建 Issue"""
+        import httpx
+
+        jira_url = self.settings.JIRA_URL.rstrip("/")
+        api_url = f"{jira_url}/rest/api/2/issue"
+
+        # 构建 JIRA API 请求体
+        issue_data = {
+            "fields": {
+                "project": {"key": self.settings.JIRA_PROJECT_KEY},
+                "summary": request.title,
+                "description": request.description,
+                "issuetype": {"name": "Bug"},
+                "priority": {"name": request.priority or "Medium"},
+                "labels": request.labels or ["ai-generated", "automation"],
+            }
+        }
+
+        # 如果有指派人
+        if request.assignee:
+            issue_data["fields"]["assignee"] = {"name": request.assignee}
+
+        # HTTP Basic Auth
+        auth = (self.settings.JIRA_USERNAME, self.settings.JIRA_API_TOKEN)
+
+        with httpx.Client(timeout=30) as client:
+            response = client.post(
+                api_url,
+                json=issue_data,
+                auth=auth,
+                headers={"Content-Type": "application/json"},
+            )
+
+        if response.status_code in (200, 201):
+            data = response.json()
+            issue_key = data.get("key", "UNKNOWN")
+            return JiraCreateResponse(
+                status="success",
+                issue_key=issue_key,
+                issue_url=f"{jira_url}/browse/{issue_key}",
+                message="缺陷单创建成功",
+            )
+        else:
+            error_msg = response.text[:500]
+            logger.error(f"JIRA API 返回错误 {response.status_code}: {error_msg}")
+            return JiraCreateResponse(
+                status="failed",
+                message=f"JIRA API 错误 ({response.status_code}): {error_msg}",
+            )

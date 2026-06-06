@@ -1,0 +1,62 @@
+"""
+日志配置模块
+提供结构化日志配置，支持控制台输出 + 文件轮转
+"""
+import logging
+import sys
+import io
+from pathlib import Path
+from logging.handlers import RotatingFileHandler
+from .settings import get_settings
+
+
+def setup_logging() -> logging.Logger:
+    """初始化全局日志配置
+
+    返回根 logger，同时配置控制台和文件两个 handler：
+    - 控制台：输出 INFO 及以上级别，带时间戳和模块名
+    - 文件：输出 DEBUG 及以上级别，自动轮转（单文件最大 10MB，保留 5 个历史文件）
+    """
+    settings = get_settings()
+
+    # 确保日志目录存在
+    log_dir = Path(settings.get_log_dir())
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # 获取根 logger
+    root_logger = logging.getLogger("ai_rd_agent")
+    root_logger.setLevel(logging.DEBUG if settings.DEBUG else logging.INFO)
+
+    # 避免重复添加 handler
+    if root_logger.handlers:
+        return root_logger
+
+    # ---- 日志格式 ----
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # ---- 控制台 Handler（Windows 兼容 UTF-8） ----
+    if sys.platform == "win32":
+        # Windows 下用 utf-8 包装 stdout
+        utf8_stream = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        console_handler = logging.StreamHandler(utf8_stream)
+    else:
+        console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # ---- 文件轮转 Handler ----
+    file_handler = RotatingFileHandler(
+        filename=log_dir / "app.log",
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    return root_logger
