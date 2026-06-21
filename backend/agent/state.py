@@ -54,6 +54,11 @@ class AgentState(TypedDict):
     next_action: str
     # 取值: "tool_call" | "llm_reason" | "finish" | "error"
 
+    # ---- 工具调用来源追踪 ----
+    origin_node: str
+    # 发起当前工具调用的节点名称，用于工具执行后路由回正确的节点
+    # 取值: "rag_node" | "analysis_node" | "test_node" | "jira_node"
+
     # ---- 错误信息 ----
     error: str
     # 异常发生时记录错误描述

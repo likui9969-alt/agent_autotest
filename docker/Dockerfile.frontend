@@ -10,7 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制前端代码
 COPY frontend/ ./frontend/
 COPY backend/ ./backend/
-COPY .env ./.env
 
 # 创建用户
 RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /app

@@ -557,6 +557,8 @@ elif page == "🤖 Agent 执行":
                 if use_stream:
                     # SSE 流式模式
                     st.session_state.agent_events = []
+                    stream_result = None
+                    current_event_type = None
                     try:
                         resp = requests.post(
                             f"{API_BASE}/api/v1/agent/execute/stream",
@@ -565,38 +567,58 @@ elif page == "🤖 Agent 执行":
                             timeout=300,
                         )
                         for line in resp.iter_lines(decode_unicode=True):
-                            if line and line.startswith("data:"):
+                            if not line:
+                                current_event_type = None
+                                continue
+                            if line.startswith("event:"):
+                                current_event_type = line[6:].strip()
+                            elif line.startswith("data:"):
                                 data_str = line[5:].strip()
                                 if data_str:
                                     try:
                                         event_data = json.loads(data_str)
-                                        # 从 SSE 行解析事件类型
-                                        pass
-                                    except:
+                                        st.session_state.agent_events.append({
+                                            "event": current_event_type,
+                                            "data": event_data,
+                                        })
+                                        if current_event_type == "final":
+                                            stream_result = {
+                                                "task_type": event_data.get("task_type", ""),
+                                                "final_response": event_data.get("response", ""),
+                                                "tool_calls_made": event_data.get("tool_calls", 0),
+                                                "iterations": event_data.get("iterations", 0),
+                                                "execution_time_ms": event_data.get("time_ms", 0),
+                                            }
+                                    except Exception:
                                         pass
                     except Exception as e:
                         st.error(f"SSE 连接失败: {str(e)}")
 
-                    # 回退到非流式
-                    st.info("切换到普通模式获取结果...")
-
-                # 非流式模式
-                try:
-                    resp = requests.post(
-                        f"{API_BASE}/api/v1/agent/execute",
-                        json={"task": task, "max_iterations": max_iters, "task_type": task_type},
-                        timeout=300,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        st.session_state.agent_result = data
+                    if stream_result:
+                        st.session_state.agent_result = stream_result
                         st.rerun()
                     else:
-                        st.error(f"执行失败 ({resp.status_code}): {resp.text[:300]}")
-                except requests.ConnectionError:
-                    st.error(f"❌ 无法连接到后端 {API_BASE}")
-                except Exception as e:
-                    st.error(f"执行异常: {str(e)}")
+                        # 流式未产生结果，回退到非流式
+                        st.info("流式未返回结果，切换到普通模式...")
+
+                # 非流式模式（流式未启用或流式未成功时执行）
+                if not use_stream or "agent_result" not in st.session_state:
+                    try:
+                        resp = requests.post(
+                            f"{API_BASE}/api/v1/agent/execute",
+                            json={"task": task, "max_iterations": max_iters, "task_type": task_type},
+                            timeout=300,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.agent_result = data
+                            st.rerun()
+                        else:
+                            st.error(f"执行失败 ({resp.status_code}): {resp.text[:300]}")
+                    except requests.ConnectionError:
+                        st.error(f"❌ 无法连接到后端 {API_BASE}")
+                    except Exception as e:
+                        st.error(f"执行异常: {str(e)}")
 
     with col2:
         st.subheader("执行结果")

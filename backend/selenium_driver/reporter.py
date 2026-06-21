@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 
 from backend.models.testing import TestReport, TestCaseResult, TestStatus
-from backend.config.settings import get_settings
+from backend.config.settings import PROJECT_ROOT
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -31,11 +31,10 @@ class TestReporter:
         Args:
             output_dir: 报告输出目录（不传则使用 data/test_reports/）
         """
-        settings = get_settings()
         if output_dir:
             self.output_dir = Path(output_dir)
         else:
-            self.output_dir = settings.PROJECT_ROOT / "data" / "test_reports"
+            self.output_dir = PROJECT_ROOT / "data" / "test_reports"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def generate_json(self, report: TestReport) -> str:

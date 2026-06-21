@@ -177,7 +177,6 @@ class TestExecutorAgent:
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-gpu")
             # 尝试创建 WebDriver（带 5 秒超时）
-            import signal
             driver = webdriver.Chrome(options=options)
             driver.quit()
             return True

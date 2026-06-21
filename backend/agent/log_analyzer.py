@@ -17,6 +17,8 @@ from datetime import datetime
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
 from backend.rag.retriever import Retriever
+from backend.rag.embeddings import EmbeddingGenerator
+from backend.rag.vector_store import VectorStore
 from backend.models.analysis import (
     LogAnalysisRequest,
     AnalysisResult,
@@ -40,9 +42,16 @@ class LogAnalyzer:
     """
 
     def __init__(self):
-        """初始化 — 创建 LLM 客户端和检索器"""
+        """初始化 — 创建共享的 LLM 客户端和检索器（减少资源占用）"""
+        # 创建共享的 LLM 客户端
         self.llm_client = LLMClient()
-        self.retriever = Retriever()
+        # 创建检索器，使用共享的 EmbeddingGenerator（内含共享的 LLMClient）
+        self.embedder = EmbeddingGenerator(llm_client=self.llm_client)
+        self.vector_store = VectorStore()
+        self.retriever = Retriever(
+            vector_store=self.vector_store,
+            embedding_generator=self.embedder,
+        )
         logger.info("日志分析 Agent 已初始化")
 
     def analyze(self, request: LogAnalysisRequest) -> AnalysisResult:

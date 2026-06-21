@@ -114,20 +114,25 @@ class VectorStore:
         self,
         query_embedding: list[float],
         top_k: int = 5,
+        include_embeddings: bool = False,
     ) -> dict:
         """按向量相似度查询最相关的文档块
 
         Args:
             query_embedding: 查询文本的嵌入向量
             top_k: 返回结果数量
+            include_embeddings: 是否返回嵌入向量（MMR 需要）
 
         Returns:
             Chroma 原生查询结果（含 ids, documents, metadatas, distances）
         """
+        include = ["documents", "metadatas", "distances"]
+        if include_embeddings:
+            include.append("embeddings")
         return self._collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
-            include=["documents", "metadatas", "distances"],
+            include=include,
         )
 
     def get_all_documents(self) -> dict:

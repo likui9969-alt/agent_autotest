@@ -45,7 +45,6 @@ COPY backend/ ./backend/
 COPY frontend/ ./frontend/
 COPY data/ ./data/
 COPY scripts/ ./scripts/
-COPY .env ./.env
 
 # 创建非 root 用户运行
 RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /app

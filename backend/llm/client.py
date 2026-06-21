@@ -153,3 +153,60 @@ class LLMClient:
         """
         results = self.embed([text])
         return results[0] if results else []
+
+    # ==================== 带工具调用的对话 ====================
+
+    def chat_with_tools(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict],
+        tool_choice: str = "auto",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> dict:
+        """发送带工具定义的对话请求，返回 Choice 消息对象
+
+        Args:
+            messages: 消息列表
+            tools: OpenAI function calling 工具定义
+            tool_choice: 工具选择策略 (auto/none/required)
+            temperature: 生成温度
+            max_tokens: 最大输出 token 数
+
+        Returns:
+            {"content": str, "tool_calls": list | None}
+        """
+        try:
+            response = self._client.chat.completions.create(
+                model=self._chat_model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=temperature if temperature is not None else self._temperature,
+                max_tokens=max_tokens if max_tokens is not None else self._max_tokens,
+            )
+
+            msg = response.choices[0].message
+            tool_calls = None
+            if msg.tool_calls:
+                import json
+                tool_calls = []
+                for tc in msg.tool_calls:
+                    try:
+                        args = json.loads(tc.function.arguments)
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append({
+                        "id": tc.id,
+                        "name": tc.function.name,
+                        "args": args,
+                    })
+
+            return {
+                "content": msg.content or "",
+                "tool_calls": tool_calls,
+            }
+
+        except Exception as e:
+            logger.error(f"LLM 工具调用失败: {e}", exc_info=True)
+            raise

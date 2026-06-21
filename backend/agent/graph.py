@@ -180,10 +180,8 @@ def make_react_reason_node(node_name: str, extra_context: str = ""):
         # 调用 LLM（带工具绑定）
         llm = LLMClient()
         try:
-            # 使用 OpenAI 兼容的 function calling
             tools_schema = _tools_to_openai_schema(ALL_TOOLS)
-            response = llm._client.chat.completions.create(
-                model=llm._chat_model,
+            result = llm.chat_with_tools(
                 messages=[{"role": ROLE_MAP.get(m.type, "user"),
                            "content": m.content} for m in full_messages],
                 tools=tools_schema,
@@ -192,41 +190,28 @@ def make_react_reason_node(node_name: str, extra_context: str = ""):
                 max_tokens=4096,
             )
 
-            choice = response.choices[0]
-            msg = choice.message
-
             # 检查是否有工具调用
-            if msg.tool_calls:
-                tool_call_list = []
-                for tc in msg.tool_calls:
-                    import json
-                    try:
-                        args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        args = {}
-                    tool_call_list.append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "args": args,
-                    })
+            if result["tool_calls"]:
+                tool_call_list = result["tool_calls"]
 
                 logger.info(f"[{node_name}] LLM 决定调用工具: {[t['name'] for t in tool_call_list]}")
 
                 return {
                     "messages": [AIMessage(
-                        content=msg.content or "",
+                        content=result["content"],
                         tool_calls=tool_call_list,
                     )],
                     "tool_calls": tool_call_list,
                     "iteration_count": iteration + 1,
                     "next_action": "tool_call",
+                    "origin_node": node_name,
                 }
             else:
                 # 没有工具调用，LLM 给出了最终回答
                 logger.info(f"[{node_name}] LLM 输出最终回答")
                 return {
-                    "messages": [AIMessage(content=msg.content or "")],
-                    "final_response": msg.content or "",
+                    "messages": [AIMessage(content=result["content"])],
+                    "final_response": result["content"],
                     "iteration_count": iteration + 1,
                     "next_action": "finish",
                 }
@@ -294,25 +279,28 @@ def execute_tools_node(state: AgentState) -> dict:
 
 # ==================== 路由判断 ====================
 
-def react_router(state: AgentState) -> Literal["react_reason", "execute_tools", END]:
-    """ReAct 循环路由"""
-    next_action = state.get("next_action", "finish")
+def make_react_router(node_name: str):
+    """工厂函数 — 创建 ReAct 循环路由，直接返回目标节点名，消除字符串映射断裂风险"""
+    def react_router(state: AgentState) -> str:
+        next_action = state.get("next_action", "finish")
 
-    if next_action == "tool_call":
-        return "execute_tools"
-    elif next_action == "llm_reason":
-        # 继续循环（回到推理节点）
-        return "react_reason"
-    else:
+        if next_action == "tool_call":
+            return "execute_tools"
+        elif next_action == "llm_reason":
+            return node_name  # 直接返回节点名，不经过抽象字符串映射
         return END
 
+    return react_router
 
-def after_tools_router(state: AgentState) -> Literal["react_reason", END]:
-    """工具执行后的路由 — 回到推理还是结束"""
+
+def after_tools_router(state: AgentState) -> Literal["rag_node", "analysis_node", "test_node", "jira_node", END]:
+    """工具执行后的路由 — 根据 origin_node 回到发起工具调用的节点"""
     next_action = state.get("next_action", "llm_reason")
     if next_action == "error":
         return END
-    return "react_reason"
+    # 回到发起工具调用的节点，继续 ReAct 循环
+    origin = state.get("origin_node", "analysis_node")
+    return origin  # type: ignore[return-value]
 
 
 # ==================== 结束格式化 ====================
@@ -391,24 +379,27 @@ def build_supervisor_graph() -> StateGraph:
         }
     )
 
-    # ---- 每个专业 Agent 的 ReAct 循环 ----
+    # ---- 每个专业 Agent 的 ReAct 循环 — 每个节点绑定自己的路由实例 ----
     for node_name in ["rag_node", "analysis_node", "test_node", "jira_node"]:
         workflow.add_conditional_edges(
             node_name,
-            react_router,
+            make_react_router(node_name),  # 工厂函数，直接返回节点名
             {
-                "react_reason": node_name,  # 继续思考（循环）
+                node_name: node_name,       # 继续思考（循环回自身）
                 "execute_tools": "execute_tools",  # 调用工具
-                END: "format_output",  # 结束
+                END: "format_output",       # 结束
             }
         )
 
-    # ---- 工具执行后回到推理节点（继续 ReAct 循环） ----
+    # ---- 工具执行后回到发起工具调用的节点（继续 ReAct 循环） ----
     workflow.add_conditional_edges(
         "execute_tools",
         after_tools_router,
         {
-            "react_reason": "analysis_node",  # 默认回到分析节点
+            "rag_node": "rag_node",
+            "analysis_node": "analysis_node",
+            "test_node": "test_node",
+            "jira_node": "jira_node",
             END: "format_output",
         }
     )

@@ -177,10 +177,9 @@ class WebDriverManager:
             截图文件的完整路径
         """
         from pathlib import Path
-        from backend.config.settings import get_settings
+        from backend.config.settings import PROJECT_ROOT
 
-        settings = get_settings()
-        screenshot_dir = Path(settings.PROJECT_ROOT) / "data" / "screenshots"
+        screenshot_dir = PROJECT_ROOT / "data" / "screenshots"
         screenshot_dir.mkdir(parents=True, exist_ok=True)
 
         filepath = screenshot_dir / f"{filename}.png"

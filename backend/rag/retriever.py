@@ -99,8 +99,8 @@ class Retriever:
 
         query_embedding = self._embedder.embed_query(query)
 
-        # 获取候选集
-        candidates = self._store.query(query_embedding, top_k=fetch_k)
+        # 获取候选集（含嵌入向量，用于 MMR 去重）
+        candidates = self._store.query(query_embedding, top_k=fetch_k, include_embeddings=True)
         candidate_docs = self._format_results(candidates)
 
         if len(candidate_docs) <= k:
@@ -123,16 +123,10 @@ class Retriever:
         top_k: int,
         lambda_mult: float = 0.5,
     ) -> list[Document]:
-        """MMR 贪心选择算法
-
-        每次从候选集中选择一个文档：
-        - 与查询相关度高（加正分）
-        - 与已选文档不相似（避免冗余，加分）
-        """
+        """MMR 贪心选择算法 — 通过实际嵌入向量计算文档间多样性"""
         import math
 
         def cosine_similarity(a: list[float], b: list[float]) -> float:
-            """计算两个向量的余弦相似度"""
             dot = sum(x * y for x, y in zip(a, b))
             norm_a = math.sqrt(sum(x * x for x in a))
             norm_b = math.sqrt(sum(x * x for x in b))
@@ -140,14 +134,14 @@ class Retriever:
                 return 0.0
             return dot / (norm_a * norm_b)
 
-        # 计算每个候选文档与查询的相关度
-        # 注意：candidates 已经是从 Chroma 按距离排序返回的
-        # 这里我们使用索引近似，候选越靠前越相关
         n = len(candidates)
 
-        # 将候选按索引位置估算相似度（越靠前分数越高）
+        # 相关度：候选文档与查询的余弦相似度
         candidate_scores = [
-            1.0 - (i / n) * 0.5 for i in range(n)
+            cosine_similarity(
+                candidates[i].metadata.get("_embedding", query_embedding),
+                query_embedding,
+            ) for i in range(n)
         ]
 
         selected = []
@@ -164,15 +158,17 @@ class Retriever:
                 # 相关性得分
                 relevance = lambda_mult * candidate_scores[i]
 
-                # 多样性得分：与已选文档的最大相似度（负向）
+                # 多样性得分：与已选文档的最大相似度（转换为惩罚项）
                 diversity = 0.0
                 if selected:
-                    sim_to_selected = cosine_similarity(
-                        candidates[i].metadata.get("_embedding", [0.0] * len(query_embedding)),
-                        # 注意：这里简化了 MMR，直接用原始的 Chroma 顺序作为多样性代理
-                        query_embedding,  # fallback to query as proxy
+                    max_sim_to_selected = max(
+                        cosine_similarity(
+                            candidates[i].metadata.get("_embedding", query_embedding),
+                            candidates[j].metadata.get("_embedding", query_embedding),
+                        )
+                        for j in selected_indices
                     )
-                    diversity = (1 - lambda_mult) * (1.0 - sim_to_selected)
+                    diversity = (1 - lambda_mult) * (1.0 - max_sim_to_selected)
 
                 score = relevance + diversity
 
@@ -206,6 +202,7 @@ class Retriever:
         docs_list = chroma_results.get("documents", [[]])[0]
         meta_list = chroma_results.get("metadatas", [[]])[0]
         distances = chroma_results.get("distances", [[]])[0]
+        embeddings_list = chroma_results.get("embeddings", [[]])[0] if chroma_results.get("embeddings") else []
 
         for i, chunk_id in enumerate(ids_list):
             doc = Document(
@@ -218,6 +215,9 @@ class Retriever:
                     "score": round(1.0 / (1.0 + distances[i]), 4) if i < len(distances) else 0.0,
                 }
             )
+            # 保存实际嵌入向量（MMR 多样性计算需要）
+            if embeddings_list and i < len(embeddings_list):
+                doc.metadata["_embedding"] = embeddings_list[i]
             documents.append(doc)
 
         return documents

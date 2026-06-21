@@ -80,7 +80,6 @@ def run_login_test(request: TestRunRequest) -> TestCaseResult:
         except (TimeoutException, NoSuchElementException) as e:
             # 尝试备选定位方式
             alt_input = manager.safe_find("css_selector", "input[type='email']", timeout=3)
-            alt_input2 = manager.safe_find("css_selector", "input[name='email']", timeout=3)
             if alt_input:
                 alt_input.send_keys("test_user@example.com")
                 steps.append(TestStepResult(step_name="输入用户名", status=TestStatus.PASSED))

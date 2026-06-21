@@ -37,13 +37,15 @@ class RAGPipeline:
     """
 
     def __init__(self):
-        """初始化管线各组件"""
+        """初始化管线各组件（共享 LLMClient 实例以减少资源占用）"""
+        # 创建共享的 LLM 客户端（用于嵌入生成和对话）
+        self.llm_client = LLMClient()
+        # 各组件初始化，EmbeddingGenerator 使用共享的 LLMClient
         self.loader = DocumentLoader()
         self.splitter = TextSplitter()
-        self.embedder = EmbeddingGenerator()
+        self.embedder = EmbeddingGenerator(llm_client=self.llm_client)
         self.vector_store = VectorStore()
         self.retriever = Retriever(self.vector_store, self.embedder)
-        self.llm_client = LLMClient()
 
         logger.info("RAG 管线已初始化")
 
