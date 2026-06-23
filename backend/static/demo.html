@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo 测试站点 — AI 研发效能智能体</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #333; }
+        .navbar { background: #4f46e5; color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+        .navbar h1 { font-size: 20px; }
+        .navbar nav a { color: #fff; text-decoration: none; margin-left: 24px; opacity: 0.9; }
+        .navbar nav a:hover { opacity: 1; }
+        .container { max-width: 640px; margin: 40px auto; padding: 0 20px; }
+        .card { background: #fff; border-radius: 12px; padding: 32px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 24px; }
+        .card h2 { margin-bottom: 24px; color: #4f46e5; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #555; }
+        input[type="text"], input[type="email"], input[type="password"], input[type="tel"], input[type="search"] {
+            width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; margin-bottom: 16px;
+        }
+        input:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.15); }
+        button { background: #4f46e5; color: #fff; border: none; padding: 12px 32px; border-radius: 8px; font-size: 15px; cursor: pointer; font-weight: 600; }
+        button:hover { background: #4338ca; }
+        .search-btn { margin-top: 8px; }
+        .msg { padding: 14px 18px; border-radius: 8px; margin-top: 16px; display: none; }
+        .msg.success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .msg.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+        .search-results { margin-top: 20px; }
+        .search-results .result-item { padding: 12px; border-bottom: 1px solid #e5e7eb; }
+        .search-results .result-item h3 { font-size: 16px; color: #4f46e5; }
+        .search-results .result-item p { font-size: 14px; color: #666; margin-top: 4px; }
+        .dashboard { margin-top: 20px; padding: 20px; background: #f0f4ff; border-radius: 8px; display: none; }
+        .dashboard h3 { color: #4f46e5; }
+        .product-list .product { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
+        .product-list .product:last-child { border-bottom: none; }
+        .product-list .product span { font-weight: 600; }
+        .hint { font-size: 13px; color: #9ca3af; margin-top: 12px; }
+    </style>
+</head>
+<body>
+<div class="navbar">
+    <h1>🤖 Demo 测试站点</h1>
+    <nav>
+        <a href="/demo">首页</a>
+        <a href="/demo/login">登录</a>
+        <a href="/demo/order">下单</a>
+    </nav>
+</div>
+
+<div class="container">
+
+    <!-- ============ 搜索区域（首页） ============ -->
+    <div class="card" id="search-section">
+        <h2>🔍 搜索</h2>
+        <form id="search-form" onsubmit="return doSearch(event)">
+            <label for="search-q">搜索关键词</label>
+            <input type="search" id="search-q" name="q" placeholder="输入搜索关键词..." aria-label="搜索" autocomplete="off">
+            <button type="submit" class="search-btn">搜索</button>
+        </form>
+        <div class="search-results" id="search-results" style="display:none;">
+            <div class="result-item"><h3>Selenium 自动化测试指南</h3><p>详细介绍 Selenium WebDriver 的使用方法和最佳实践...</p></div>
+            <div class="result-item"><h3>Python Web 测试实战</h3><p>从零开始构建自动化测试框架，涵盖 pytest、Selenium 等...</p></div>
+            <div class="result-item"><h3>CI/CD 持续集成测试</h3><p>如何在持续集成流水线中集成自动化测试...</p></div>
+        </div>
+        <p class="hint">提示：测试脚本会查找 name="q" 的输入框和包含"搜索"文字的按钮</p>
+    </div>
+
+    <!-- ============ 登录区域 ============ -->
+    <div class="card" id="login-section">
+        <h2>🔑 用户登录</h2>
+        <form id="login-form" onsubmit="return doLogin(event)">
+            <label for="username">用户名 / 邮箱</label>
+            <input type="email" id="username" name="username" placeholder="test_user@example.com" autocomplete="off">
+
+            <label for="password">密码</label>
+            <input type="password" id="password" name="password" placeholder="请输入密码" autocomplete="off">
+
+            <button type="submit">登录</button>
+        </form>
+        <div class="dashboard" id="login-dashboard">
+            <h3>👋 欢迎，test_user！</h3>
+            <p>您已成功登录，这是您的个人仪表盘。</p>
+            <p class="user-menu" style="margin-top:8px;">[个人中心] [设置] [退出]</p>
+        </div>
+        <p class="hint">提示：测试脚本会查找 name="username"、name="password" 和包含"登录"文字的按钮</p>
+    </div>
+
+    <!-- ============ 下单区域 ============ -->
+    <div class="card" id="order-section">
+        <h2>🛒 提交订单</h2>
+        <div class="product-list">
+            <div class="product"><span>📦 Selenium 测试课程</span><span>¥199</span></div>
+        </div>
+        <form id="order-form" onsubmit="return doOrder(event)" style="margin-top:20px;">
+            <label for="order-name">姓名</label>
+            <input type="text" id="order-name" name="name" placeholder="收货人姓名" required autocomplete="off">
+
+            <label for="order-phone">电话</label>
+            <input type="tel" id="order-phone" name="phone" placeholder="联系电话" required autocomplete="off">
+
+            <label for="order-email">邮箱</label>
+            <input type="email" id="order-email" name="email" placeholder="电子邮箱" required autocomplete="off">
+
+            <label for="order-address">地址</label>
+            <input type="text" id="order-address" name="address" placeholder="收货地址" required autocomplete="off">
+
+            <button type="submit">下单</button>
+        </form>
+        <div class="msg success" id="order-success">
+            ✅ 下单成功！感谢您的购买，订单号：DEMO-<span id="order-no"></span>
+        </div>
+        <p class="hint">提示：测试脚本会查找 name="name"/"phone"/"email"/"address" 和包含"下单"文字的按钮</p>
+    </div>
+
+</div>
+
+<script>
+    // 根据路径显示对应区域
+    function showSection() {
+        var path = window.location.pathname.replace(/\/+$/, '');
+        var searchSec = document.getElementById('search-section');
+        var loginSec  = document.getElementById('login-section');
+        var orderSec  = document.getElementById('order-section');
+
+        if (path.endsWith('/login')) {
+            searchSec.style.display = 'none';
+            orderSec.style.display  = 'none';
+            loginSec.style.display  = 'block';
+        } else if (path.endsWith('/order')) {
+            searchSec.style.display = 'none';
+            loginSec.style.display  = 'none';
+            orderSec.style.display  = 'block';
+        } else {
+            // 首页显示搜索 + 登录 + 下单全部
+            searchSec.style.display = 'block';
+            loginSec.style.display  = 'block';
+            orderSec.style.display  = 'block';
+        }
+    }
+
+    function doLogin(e) {
+        e.preventDefault();
+        var u = document.getElementById('username').value;
+        var p = document.getElementById('password').value;
+        if (u && p) {
+            document.getElementById('login-dashboard').style.display = 'block';
+            document.getElementById('login-form').style.display = 'none';
+        }
+        return false;
+    }
+
+    function doSearch(e) {
+        e.preventDefault();
+        var q = document.getElementById('search-q').value;
+        if (q) {
+            document.getElementById('search-results').style.display = 'block';
+        }
+        return false;
+    }
+
+    function doOrder(e) {
+        e.preventDefault();
+        document.getElementById('order-success').style.display = 'block';
+        document.getElementById('order-no').textContent = Date.now().toString().slice(-6);
+        document.getElementById('order-form').style.display = 'none';
+        return false;
+    }
+
+    showSection();
+</script>
+</body>
+</html>

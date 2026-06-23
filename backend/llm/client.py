@@ -92,22 +92,6 @@ class LLMClient:
             logger.error(f"LLM 对话调用失败: {e}", exc_info=True)
             raise
 
-    def chat_simple(self, user_message: str, system_prompt: str = "") -> str:
-        """简化的对话接口 — 只需传入用户消息和可选的系统提示
-
-        Args:
-            user_message: 用户输入文本
-            system_prompt: 系统角色设定（可选）
-
-        Returns:
-            模型回复字符串
-        """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": user_message})
-        return self.chat(messages)
-
     def _stream_response(self, response) -> Iterator[str]:
         """处理流式响应，逐 token 产出"""
         for chunk in response:

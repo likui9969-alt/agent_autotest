@@ -1,12 +1,15 @@
 """
 FastAPI 应用入口
 创建应用实例，注册中间件、异常处理器和路由
-启动命令：uvicorn backend.main:app --reload
+启动命令：uvicorn backend.main:app --reload --port 8001
 """
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 from backend.config.settings import get_settings
 from backend.config.logging_config import setup_logging
@@ -70,4 +73,26 @@ async def root():
         "version": settings.APP_VERSION,
         "docs": "/docs",
         "health": "/health",
+        "demo": "/demo",
     }
+
+
+# ==================== Demo 测试站点 ====================
+# 内置的演示页面，供 Selenium 自动化测试使用
+# 包含登录表单、搜索框、下单表单，元素 ID 与测试场景定位器匹配
+
+_DEMO_HTML_PATH = Path(__file__).parent / "static" / "demo.html"
+
+
+@app.get("/demo", response_class=HTMLResponse)
+@app.get("/demo/", response_class=HTMLResponse)
+@app.get("/demo/login", response_class=HTMLResponse)
+@app.get("/demo/order", response_class=HTMLResponse)
+async def demo_page():
+    """Demo 测试站点 — 提供 Selenium 自动化测试所需的目标页面
+
+    - /demo        首页（含搜索 + 登录 + 下单）
+    - /demo/login  登录页
+    - /demo/order  下单页
+    """
+    return HTMLResponse(content=_DEMO_HTML_PATH.read_text(encoding="utf-8"))

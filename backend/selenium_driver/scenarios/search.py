@@ -49,7 +49,7 @@ def run_search_test(request: TestRunRequest) -> TestCaseResult:
         # ---- 步骤 1：打开首页 ----
         step_start = time.time()
         try:
-            driver.get(base_url)
+            manager.safe_get(base_url)
             selenium_logs.append(f"[INFO] 打开首页: {base_url}")
             steps.append(TestStepResult(
                 step_name="打开首页",

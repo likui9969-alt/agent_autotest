@@ -1,13 +1,12 @@
 """
 Streamlit 前端应用 — AI-Driven 研发效能智能体
 提供 4 个功能页面：知识库管理、智能问答、日志分析、自动化测试
-启动命令：streamlit run frontend/app.py
+启动命令：streamlit run app.py
 """
+import os
 import streamlit as st
 import requests
-import time
 import json
-from pathlib import Path
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -17,8 +16,27 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 后端 API 地址（默认本地）
-API_BASE = "http://localhost:8000"
+# 后端 API 地址默认值：环境变量 AGENT_API_BASE > 8000
+_DEFAULT_API_BASE = os.environ.get("AGENT_API_BASE", "http://localhost:8000")
+
+
+def _probe_backend(host: str, timeout: float = 1.5) -> bool:
+    """探测指定地址的后端是否在线（调用 /health 接口）"""
+    try:
+        r = requests.get(f"{host}/health", timeout=timeout)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _auto_detect_backend() -> str:
+    """自动扫描本机 8000-8005 端口，返回第一个在线的后端地址"""
+    for port in range(8000, 8006):
+        url = f"http://localhost:{port}"
+        if _probe_backend(url):
+            return url
+    return _DEFAULT_API_BASE
+
 
 # ==================== 侧边栏导航 ====================
 st.sidebar.title("🤖 AI研发效能智能体")
@@ -30,10 +48,28 @@ page = st.sidebar.radio(
     ["📚 知识库管理", "💬 智能问答", "📊 日志分析", "🧪 自动化测试", "🤖 Agent 执行"],
 )
 
-# API 地址配置
-api_host = st.sidebar.text_input("后端API地址", value=API_BASE, key="api_host")
+# API 地址配置 — 持久化到 session_state，避免重跑时被重置
+if "api_host" not in st.session_state:
+    st.session_state.api_host = _DEFAULT_API_BASE
+
+# 自动探测按钮 + 手动输入
+_detect_col, _status_col = st.sidebar.columns([1, 1])
+if _detect_col.button("🔍 自动探测", key="detect_btn", help="扫描 8000-8005 端口自动找到后端"):
+    with st.spinner("扫描中..."):
+        detected = _auto_detect_backend()
+        st.session_state.api_host = detected
+        st.rerun()
+
+# 实时连接状态指示灯
+if _probe_backend(st.session_state.api_host, timeout=1.0):
+    _status_col.markdown("🟢 **已连接**")
+else:
+    _status_col.markdown("🔴 **未连接**")
+
+api_host = st.sidebar.text_input("后端API地址", value=st.session_state.api_host, key="api_host_input")
 if api_host:
-    API_BASE = api_host.rstrip("/")
+    st.session_state.api_host = api_host.rstrip("/")
+API_BASE = st.session_state.api_host
 
 st.sidebar.divider()
 st.sidebar.caption("v1.0.0 | AI-Driven R&D Agent")
@@ -211,37 +247,101 @@ elif page == "💬 智能问答":
 # ==================== 页面3：日志分析 ====================
 elif page == "📊 日志分析":
     st.title("📊 日志分析")
-    st.markdown("上传测试日志文件或粘贴日志内容，AI 自动识别异常并生成分析报告。")
+    st.markdown("上传测试日志文件、粘贴日志内容，或直接读取后端运行日志，AI 自动识别异常并生成分析报告。")
 
     col1, col2 = st.columns([1, 1])
 
     with col1:
         st.subheader("输入日志")
-        input_method = st.radio("输入方式", ["📄 上传文件", "✏️ 粘贴内容"])
+        input_method = st.radio("输入方式", ["📄 上传文件", "✏️ 粘贴内容", "📋 读取运行日志"])
+
+        # 从 session_state 恢复日志内容（解决 Streamlit rerun 导致局部变量丢失的问题）
+        if "rt_log_content" not in st.session_state:
+            st.session_state.rt_log_content = ""
+            st.session_state.rt_log_filename = "runtime_app.log"
 
         log_content = ""
         filename = "manual_input.log"
 
         if input_method == "📄 上传文件":
+            # 切换到其他模式时清空运行日志缓存
+            if st.session_state.rt_log_content:
+                st.session_state.rt_log_content = ""
             log_file = st.file_uploader(
                 "选择日志文件",
                 type=["log", "txt"],
                 help="支持 .log 和 .txt 格式",
             )
             if log_file:
+                raw_bytes = log_file.getvalue()
                 try:
-                    log_content = log_file.read().decode("utf-8")
+                    log_content = raw_bytes.decode("utf-8")
                 except UnicodeDecodeError:
-                    log_content = log_file.read().decode("gbk", errors="replace")
+                    log_content = raw_bytes.decode("gbk", errors="replace")
                 filename = log_file.name
                 st.text_area("日志预览", value=log_content[:3000], height=250, disabled=True)
                 st.caption(f"文件大小: {len(log_content)} 字符")
-        else:
+
+        elif input_method == "✏️ 粘贴内容":
+            # 切换到其他模式时清空运行日志缓存
+            if st.session_state.rt_log_content:
+                st.session_state.rt_log_content = ""
             log_content = st.text_area(
                 "粘贴日志内容",
                 height=250,
                 placeholder="在此粘贴测试日志...\n\n例如：\nTraceback (most recent call last):\n  File 'test.py', line 10\nTimeoutException: Page load timeout",
             )
+
+        else:  # 读取运行日志
+            st.caption("直接拉取后端服务 `data/logs/app.log` 的最近日志，无需上传文件。")
+            rt_col1, rt_col2 = st.columns(2)
+            with rt_col1:
+                rt_tail = st.slider("读取行数", 50, 2000, 200, step=50, key="rt_tail")
+            with rt_col2:
+                rt_level = st.selectbox(
+                    "日志级别",
+                    options=["all", "ERROR", "WARNING", "INFO"],
+                    index=0,
+                    key="rt_level",
+                    help="ERROR 只看错误；all 看全部。问'刚才什么错误'建议选 ERROR",
+                )
+
+            if st.button("📥 拉取运行日志", key="fetch_rt_log"):
+                with st.spinner("正在读取运行日志..."):
+                    try:
+                        resp = requests.get(
+                            f"{API_BASE}/api/v1/analysis/runtime-logs",
+                            params={"tail_lines": rt_tail, "level": rt_level},
+                            timeout=30,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            # 持久化到 session_state，避免 rerun 后丢失
+                            st.session_state.rt_log_content = data.get("content", "")
+                            st.session_state.rt_log_filename = "runtime_app.log"
+                            st.success(
+                                f"已读取 {data.get('returned_lines', 0)} 行 "
+                                f"(共 {data.get('total_lines', 0)} 行，过滤级别: {data.get('level', 'all')})"
+                            )
+                        else:
+                            st.error(f"读取失败: {resp.text[:300]}")
+                    except requests.ConnectionError:
+                        st.error(f"❌ 无法连接到后端 {API_BASE}")
+                    except Exception as e:
+                        st.error(f"读取异常: {str(e)}")
+
+            # 从 session_state 恢复日志内容
+            log_content = st.session_state.rt_log_content
+            filename = st.session_state.rt_log_filename
+
+            if log_content:
+                st.text_area("运行日志预览", value=log_content[:3000], height=250, disabled=True)
+                st.caption(f"已加载: {len(log_content)} 字符")
+                # 提供清空按钮
+                if st.button("🗑️ 清空已拉取的日志", key="clear_rt_log"):
+                    st.session_state.rt_log_content = ""
+                    st.session_state.rt_log_filename = "runtime_app.log"
+                    st.rerun()
 
         # 分析参数
         include_historical = st.checkbox("检索历史相似案例", value=True)
@@ -408,8 +508,28 @@ elif page == "🧪 自动化测试":
 
     with col1:
         st.subheader("测试配置")
-        base_url = st.text_input("目标网站", value="https://example.com")
-        headless = st.checkbox("无头模式（后台运行）", value=True)
+        # 默认使用后端内置的 Demo 测试站点（含登录/搜索/下单表单）
+        _demo_url = f"{API_BASE}/demo"
+        if "test_base_url" not in st.session_state:
+            st.session_state.test_base_url = _demo_url
+        base_url = st.text_input(
+            "目标网站",
+            value=st.session_state.test_base_url,
+            help="默认使用内置 Demo 站点（/demo）。也可改为任意真实网站地址。",
+        )
+        st.session_state.test_base_url = base_url
+
+        # 浏览器模式选择：无头 vs 可见窗口
+        browser_mode = st.radio(
+            "浏览器模式",
+            options=["headless", "visible"],
+            format_func=lambda x: {
+                "headless": "🤫 无头模式（后台运行，速度快）",
+                "visible": "🖥️ 可见模式（弹出浏览器窗口，可观察测试过程）",
+            }[x],
+            help="无头模式：Chrome 在后台运行，不显示窗口，适合 CI/CD\n可见模式：会弹出真实 Chrome 窗口，可以看到测试操作的整个过程",
+        )
+        headless = browser_mode == "headless"
         timeout = st.slider("超时时间（秒）", 10, 60, 30)
 
         st.subheader("选择测试场景")
@@ -423,12 +543,13 @@ elif page == "🧪 自动化测试":
         auto_analyze = st.checkbox("失败时自动AI分析", value=True)
         sandbox = st.checkbox(
             "🧪 沙盒模式（无需Chrome，模拟执行）",
-            value=True,
-            help="开启后使用模拟的 Selenium 执行，适合演示和开发调试",
+            value=False,
+            help="开启后使用模拟的 Selenium 执行。关闭则驱动真实 Chrome 浏览器（默认关闭，使用真实浏览器）",
         )
 
         if st.button("▶ 开始测试", type="primary", disabled=not scenarios):
-            with st.spinner("测试执行中..." + ("(沙盒模式)" if sandbox else "(真实浏览器)")):
+            mode_label = "沙盒模式" if sandbox else ("无头浏览器" if headless else "可见浏览器")
+            with st.spinner(f"测试执行中...({mode_label})"):
                 try:
                     resp = requests.post(
                         f"{API_BASE}/api/v1/testing/run",
@@ -516,20 +637,33 @@ elif page == "🤖 Agent 执行":
     输入任务描述，AI Agent 自动：
     1. 分析意图 → 2. 选择工具 → 3. 执行工具 → 4. 观察结果 → 5. 继续推理 → 6. 生成最终回答
 
-    可用工具：`search_knowledge_base` | `parse_log_content` | `execute_test_scenario` | `create_jira_issue_tool`
+    可用工具：`search_knowledge_base` | `parse_log_content` | `execute_test_scenario` | `create_jira_issue_tool` | `get_runtime_logs` | `get_system_status`
     """)
 
     col1, col2 = st.columns([1, 1])
 
     with col1:
         st.subheader("任务描述")
+
+        # 快捷示例 — 一键填充常见任务
+        st.caption("💡 点击示例快速填充：")
+        ex_cols = st.columns(3)
+        examples = {
+            "刚才什么错误": "刚才后端运行出了什么错误？请读取运行日志并分析原因和解决方案。",
+            "系统状态检查": "检查一下系统各组件状态是否正常，LLM、向量库、Chrome 是否可用。",
+            "跑测试并分析": "执行登录和搜索场景的自动化测试，如果失败请分析原因并给出修复建议。",
+        }
+        for c, (label, text) in zip(ex_cols, examples.items()):
+            if c.button(label, key=f"ex_{label}"):
+                st.session_state.agent_task = text
+
         task = st.text_area(
             "用自然语言描述你想让 Agent 完成的任务",
-            height=150,
+            height=120,
             placeholder="例如：\n"
-                       "• 分析这个错误：TimeoutException: Page load timeout after 30s，帮我查查历史案例和修复方案\n"
-                       "• 执行登录和搜索场景的自动化测试，分析失败原因\n"
-                       "• 分析 test.log 中的异常，搜索相似案例，如果确认是 bug 就创建 JIRA 缺陷单",
+                       "• 刚才什么错误？读取运行日志分析一下\n"
+                       "• 分析这个错误：TimeoutException: Page load timeout after 30s\n"
+                       "• 执行登录测试，分析失败原因，确认是 bug 就创建 JIRA 缺陷单",
             key="agent_task",
         )
 
@@ -553,10 +687,13 @@ elif page == "🤖 Agent 执行":
                                  help="实时展示 Agent 的推理过程和工具调用")
 
         if st.button("🚀 执行 Agent 任务", type="primary", disabled=not task.strip(), key="agent_exec_btn"):
+            # 清空上一次的结果
+            st.session_state.agent_events = []
+            st.session_state.pop("agent_result", None)
+
             with st.spinner("Agent 推理中..."):
                 if use_stream:
                     # SSE 流式模式
-                    st.session_state.agent_events = []
                     stream_result = None
                     current_event_type = None
                     try:
@@ -589,16 +726,20 @@ elif page == "🤖 Agent 执行":
                                                 "iterations": event_data.get("iterations", 0),
                                                 "execution_time_ms": event_data.get("time_ms", 0),
                                             }
-                                    except Exception:
-                                        pass
+                                    except Exception as e:
+                                        # SSE 事件解析失败时跳过该事件，不影响后续处理
+                                        import logging as _logging
+                                        _logging.getLogger("frontend").debug(f"SSE 事件解析跳过: {e}")
                     except Exception as e:
                         st.error(f"SSE 连接失败: {str(e)}")
 
                     if stream_result:
                         st.session_state.agent_result = stream_result
                         st.rerun()
+                    elif st.session_state.agent_events:
+                        # 流式有事件但无 final，仍展示已收集的推理过程
+                        st.warning("流式未返回 final 事件，但已记录推理过程（见右侧）")
                     else:
-                        # 流式未产生结果，回退到非流式
                         st.info("流式未返回结果，切换到普通模式...")
 
                 # 非流式模式（流式未启用或流式未成功时执行）
@@ -622,7 +763,10 @@ elif page == "🤖 Agent 执行":
 
     with col2:
         st.subheader("执行结果")
-        if "agent_result" in st.session_state and st.session_state.agent_result:
+        has_result = "agent_result" in st.session_state and st.session_state.agent_result
+        has_events = bool(st.session_state.get("agent_events"))
+
+        if has_result:
             result = st.session_state.agent_result
 
             # 统计卡片
@@ -639,6 +783,11 @@ elif page == "🤖 Agent 执行":
             # 错误信息
             if result.get("error"):
                 st.error(f"执行错误: {result['error']}")
+
+            # ---- 推理过程时间线（来自 SSE 事件） ----
+            if has_events:
+                with st.expander("🧠 推理过程时间线", expanded=True):
+                    _render_agent_timeline(st.session_state.agent_events)
 
             # 最终回答
             st.markdown("### 💡 Agent 回答")
@@ -657,11 +806,94 @@ elif page == "🤖 Agent 执行":
                     "iterations": result.get("iterations", 0),
                     "time_ms": result.get("execution_time_ms", 0),
                 })
+        elif has_events:
+            # 仅有事件无最终结果（流式中断场景）
+            st.info(f"已记录 {len(st.session_state.agent_events)} 个推理事件（未获得最终回答）")
+            with st.expander("🧠 推理过程时间线", expanded=True):
+                _render_agent_timeline(st.session_state.agent_events)
         else:
             st.info("👈 输入任务描述，点击执行按钮启动 Agent" + "\n\n" +
                     "**什么是 ReAct 循环？**\n\n" +
                     "Agent 不会一次性给出答案，而是：\n"
                     "1. 🧠 **Think** — 分析问题，决定要用什么工具\n"
-                    "2. 🔧 **Act** — 调用工具（搜知识库/跑测试/分析日志/创缺陷单）\n"
+                    "2. 🔧 **Act** — 调用工具（搜知识库/跑测试/读运行日志/查系统状态/创缺陷单）\n"
                     "3. 👁 **Observe** — 查看工具返回的结果\n"
                     "4. 🔄 重复以上步骤，直到获得足够信息给出最终答案")
+
+
+# ==================== 辅助函数：渲染 Agent 推理时间线 ====================
+
+def _render_agent_timeline(events: list[dict]):
+    """将 SSE 事件列表渲染为可视化的推理时间线
+
+    事件类型：
+    - start       : 任务开始
+    - node_start  : 进入图节点（supervisor / rag_node / execute_tools ...）
+    - tool_call   : Agent 调用工具
+    - node_end    : 节点执行完毕
+    - final       : 最终回答
+    - error       : 错误
+    - done        : 流结束
+    """
+    if not events:
+        st.caption("（无推理事件）")
+        return
+
+    node_icons = {
+        "supervisor": "🎯",
+        "rag_node": "📚",
+        "analysis_node": "📊",
+        "test_node": "🧪",
+        "jira_node": "🎫",
+        "execute_tools": "🔧",
+        "format_output": "📝",
+    }
+
+    step_idx = 0
+    for ev in events:
+        etype = ev.get("event", "")
+        data = ev.get("data", {}) or {}
+
+        if etype == "start":
+            st.markdown(f"**▶ 任务开始** — `{data.get('task', '')[:80]}`")
+            st.caption(f"task_id: {data.get('task_id', '')} | 最大迭代: {data.get('max_iterations', '')}")
+
+        elif etype == "node_start":
+            step_idx += 1
+            node = data.get("node", "")
+            icon = node_icons.get(node, "⚙️")
+            it = data.get("iteration", 0)
+            label = {
+                "supervisor": "意图分类",
+                "rag_node": "RAG 问答推理",
+                "analysis_node": "日志分析推理",
+                "test_node": "测试执行推理",
+                "jira_node": "JIRA 创建推理",
+                "execute_tools": "执行工具",
+                "format_output": "格式化输出",
+            }.get(node, node)
+            st.markdown(f"**{icon} 步骤 {step_idx}：{label}**" + (f" · 第 {it} 轮" if it else ""))
+
+        elif etype == "tool_call":
+            tool = data.get("tool", "unknown")
+            args = data.get("args", {})
+            args_str = ", ".join(f"{k}={v}" for k, v in args.items()) if args else "(无参数)"
+            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ 🔧 调用工具 **`{tool}`**({args_str})")
+
+        elif etype == "node_end":
+            nxt = data.get("next_action", "")
+            if nxt:
+                st.caption(f"&nbsp;&nbsp;&nbsp;&nbsp;→ 下一步: `{nxt}`")
+
+        elif etype == "final":
+            st.markdown(
+                f"**✅ 完成** — 工具调用 {data.get('tool_calls', 0)} 次 | "
+                f"迭代 {data.get('iterations', 0)} 轮 | "
+                f"耗时 {data.get('time_ms', 0):.0f}ms"
+            )
+
+        elif etype == "error":
+            st.error(f"❌ 错误: {data.get('message', '')}")
+
+        elif etype == "done":
+            st.caption("— 流结束 —")

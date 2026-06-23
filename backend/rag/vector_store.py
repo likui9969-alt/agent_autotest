@@ -135,12 +135,6 @@ class VectorStore:
             include=include,
         )
 
-    def get_all_documents(self) -> dict:
-        """获取集合中的所有文档块（用于统计和调试）"""
-        return self._collection.get(
-            include=["documents", "metadatas"],
-        )
-
     # ==================== 管理操作 ====================
 
     def get_stats(self) -> dict:

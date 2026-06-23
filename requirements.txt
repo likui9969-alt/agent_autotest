@@ -10,16 +10,16 @@ python-dotenv==1.0.0
 PyYAML==6.0
 
 # ==================== 阿里云百炼 / LLM ====================
-openai==2.41.0
+openai==1.65.5
 
 # ==================== LangChain + RAG ====================
-langgraph==1.2.4
+langgraph==0.2.74
 langchain==0.3.30
 langchain-core==0.3.86
 langchain-community==0.3.27
 langchain-text-splitters==0.3.11
-langchain-openai==1.2.2
-langchain-chroma==1.1.0
+langchain-openai==0.3.0
+langchain-chroma==0.2.6
 chromadb==1.5.9
 
 # ==================== 文档处理 ====================

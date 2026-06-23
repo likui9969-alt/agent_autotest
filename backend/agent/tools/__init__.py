@@ -3,6 +3,9 @@ Agent 工具定义模块
 使用 LangChain @tool 装饰器，将后端能力封装为 Agent 可调用的工具函数
 """
 import logging
+import os
+import sys
+from pathlib import Path
 from langchain_core.tools import tool
 
 logger = logging.getLogger("ai_rd_agent")
@@ -25,10 +28,10 @@ def search_knowledge_base(query: str) -> str:
     Returns:
         检索到的相关文档内容（最多 5 条，按相似度排序）
     """
-    from backend.rag.retriever import Retriever
+    from backend.api.deps import get_rag_pipeline
 
-    retriever = Retriever()
-    docs = retriever.similarity_search(query, top_k=5)
+    pipeline = get_rag_pipeline()
+    docs = pipeline.retriever.similarity_search(query, top_k=5)
 
     if not docs:
         return "知识库中未找到相关内容。"
@@ -63,9 +66,9 @@ def parse_log_content(log_text: str) -> str:
     Returns:
         解析出的异常列表（JSON 格式），包含异常类型、消息、文件位置等
     """
-    from backend.agent.log_analyzer import LogAnalyzer
+    from backend.api.deps import get_log_analyzer
 
-    analyzer = LogAnalyzer()
+    analyzer = get_log_analyzer()
     exceptions = analyzer._extract_exceptions(log_text)
 
     if not exceptions:
@@ -170,8 +173,8 @@ def create_jira_issue_tool(title: str, description: str, priority: str = "Medium
     Returns:
         创建结果，包含 Issue Key 和链接。
     """
+    from backend.api.deps import get_jira_creator
     from backend.models.jira import JiraCreateRequest
-    from backend.agent.jira_creator import JiraCreator
 
     request = JiraCreateRequest(
         title=title,
@@ -179,13 +182,112 @@ def create_jira_issue_tool(title: str, description: str, priority: str = "Medium
         priority=priority,
         labels=["ai-agent", "react-loop"],
     )
-    creator = JiraCreator()
+    creator = get_jira_creator()
     response = creator.create_issue(request)
 
     if response.status == "success":
         return f"缺陷单已创建: {response.issue_key}\n链接: {response.issue_url}\n{response.message}"
     else:
         return f"创建失败: {response.message}"
+
+
+# ==================== 工具 5：运行日志读取 ====================
+
+@tool
+def get_runtime_logs(tail_lines: int = 200, level: str = "all") -> str:
+    """读取后端服务最近的运行日志（无需用户上传文件）。
+
+    使用场景：
+    - 用户问"刚才什么错误/发生了什么/为什么失败"时，直接拉取运行日志
+    - 需要排查后端服务近期异常
+    - 需要查看最近的测试执行记录和报错堆栈
+
+    Args:
+        tail_lines: 读取最后 N 行日志，默认 200 行（最大 2000）
+        level: 日志级别过滤，可选 all / ERROR / WARNING / INFO。
+               当用户问"什么错误"时请传 level="ERROR"。
+
+    Returns:
+        最近的日志文本（按级别过滤后），含时间戳和模块名。
+    """
+    from backend.config.settings import get_settings
+
+    settings = get_settings()
+    log_dir = Path(settings.get_log_dir())
+    log_file = log_dir / "app.log"
+
+    if not log_file.exists():
+        return "运行日志文件不存在（服务可能刚启动尚未写入日志）。"
+
+    tail_lines = max(1, min(int(tail_lines), 2000))
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+    except Exception as e:
+        return f"读取日志文件失败: {e}"
+
+    if not all_lines:
+        return "运行日志为空。"
+
+    # 按级别过滤
+    level_upper = level.upper()
+    if level_upper in ("ERROR", "WARNING", "INFO"):
+        filtered = [ln for ln in all_lines if f"| {level_upper}" in ln]
+    else:
+        filtered = all_lines
+
+    # 取最后 N 行
+    tail = filtered[-tail_lines:]
+    return "".join(tail) if tail else f"未找到级别为 {level_upper} 的日志。"
+
+
+# ==================== 工具 6：系统状态诊断 ====================
+
+@tool
+def get_system_status() -> str:
+    """诊断后端系统及各依赖组件的运行状态。
+
+    使用场景：
+    - 用户问"系统是否正常/能不能用/状态如何"时
+    - 排查 LLM、向量库、Chrome 浏览器是否可用
+    - 在执行测试前确认环境就绪
+
+    Returns:
+        各组件状态报告（LLM / Chroma 向量库 / Chrome 浏览器 / chromedriver）。
+    """
+    from backend.config.settings import get_settings
+
+    settings = get_settings()
+    lines = ["## 系统状态诊断报告"]
+
+    # ---- LLM 配置 ----
+    llm_ok = bool(settings.DASHSCOPE_API_KEY)
+    lines.append(
+        f"- LLM (DashScope): {'✅ 已配置' if llm_ok else '❌ 未配置 DASHSCOPE_API_KEY'}"
+        f" | 模型: {settings.LLM_MODEL}"
+    )
+
+    # ---- Chroma 向量库 ----
+    try:
+        from backend.api.deps import get_rag_pipeline
+        pipeline = get_rag_pipeline()
+        count = pipeline.vector_store.count()
+        lines.append(f"- Chroma 向量库: ✅ 正常 | 向量块数: {count}")
+    except Exception as e:
+        lines.append(f"- Chroma 向量库: ❌ 异常 — {str(e)[:100]}")
+
+    # ---- chromedriver & Chrome 浏览器 ----
+    from backend.selenium_driver.driver import detect_chrome
+    chrome_binary, driver_path = detect_chrome()
+    lines.append(
+        f"- chromedriver: {'✅ ' + driver_path if driver_path else '❌ 未找到'}"
+    )
+    lines.append(
+        f"- Chrome 浏览器: {'✅ ' + chrome_binary if chrome_binary else '❌ 未找到（测试将使用沙盒模式）'}"
+    )
+
+    return "\n".join(lines)
 
 
 # ==================== 工具注册表 ====================
@@ -196,6 +298,8 @@ ALL_TOOLS = [
     parse_log_content,
     execute_test_scenario,
     create_jira_issue_tool,
+    get_runtime_logs,
+    get_system_status,
 ]
 
 # 按名称索引

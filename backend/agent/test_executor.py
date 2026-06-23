@@ -36,8 +36,12 @@ class TestExecutorAgent:
         ))
     """
 
-    def __init__(self):
-        self.log_analyzer = LogAnalyzer()
+    def __init__(self, log_analyzer: LogAnalyzer | None = None):
+        if log_analyzer:
+            self.log_analyzer = log_analyzer
+        else:
+            from backend.api.deps import get_log_analyzer
+            self.log_analyzer = get_log_analyzer()
         logger.info("测试执行 Agent 已初始化")
 
     def run_tests(self, request: TestRunRequest) -> TestReport:
@@ -168,21 +172,19 @@ class TestExecutorAgent:
 
     @staticmethod
     def _chrome_available() -> bool:
-        """检测 Chrome 浏览器是否可用"""
-        try:
-            from selenium import webdriver
-            from selenium.webdriver.chrome.options import Options
-            options = Options()
-            options.add_argument("--headless=new")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-gpu")
-            # 尝试创建 WebDriver（带 5 秒超时）
-            driver = webdriver.Chrome(options=options)
-            driver.quit()
-            return True
-        except Exception:
-            logger.info("Chrome 不可用，将使用沙盒模式")
+        """检测 Chrome 浏览器和 chromedriver 是否可用（轻量检测，不启动浏览器）"""
+        from backend.selenium_driver.driver import detect_chrome
+
+        chrome_binary, driver_path = detect_chrome()
+        if not driver_path:
+            logger.info("Chrome 不可用：未找到 chromedriver，将使用沙盒模式")
             return False
+        if not chrome_binary:
+            logger.info("Chrome 不可用：未找到 Chrome 浏览器，将使用沙盒模式")
+            return False
+
+        logger.info(f"Chrome 检测通过: browser={chrome_binary}, driver={driver_path}")
+        return True
 
     def _analyze_failure(self, result: TestCaseResult) -> str:
         """对失败用例进行 AI 分析

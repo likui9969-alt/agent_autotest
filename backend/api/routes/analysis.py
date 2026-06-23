@@ -1,9 +1,11 @@
 """
 日志分析路由
-POST /api/v1/analysis/log — 上传日志文件或粘贴日志内容，返回故障分析报告
+POST /api/v1/analysis/log          — 上传日志文件或粘贴日志内容，返回故障分析报告
+GET  /api/v1/analysis/runtime-logs — 读取后端服务最近的运行日志（无需上传文件）
 """
 import logging
-from fastapi import APIRouter, UploadFile, File, Form, Depends
+from pathlib import Path
+from fastapi import APIRouter, UploadFile, File, Form, Query
 from fastapi.responses import JSONResponse
 
 from backend.models.analysis import LogAnalysisRequest, AnalysisResult
@@ -33,7 +35,7 @@ async def analyze_log(
     filename = "manual_input.log"
 
     if file and file.filename:
-        # 从上传文件中读取
+        # 从上传文件中读取（一次性读取全部字节，避免重复 read 返回空）
         raw_bytes = await file.read()
         try:
             content = raw_bytes.decode("utf-8")
@@ -59,3 +61,53 @@ async def analyze_log(
     result = analyzer.analyze(request)
 
     return result
+
+
+@router.get("/runtime-logs")
+async def get_runtime_logs(
+    tail_lines: int = Query(default=200, ge=1, le=2000, description="读取最后 N 行日志"),
+    level: str = Query(
+        default="all",
+        description="日志级别过滤：all / ERROR / WARNING / INFO",
+    ),
+):
+    """读取后端服务最近的运行日志（无需上传文件）
+
+    用于"刚才发生了什么错误"这类场景：直接拉取 data/logs/app.log 的尾部内容。
+    """
+    from backend.config.settings import get_settings
+
+    settings = get_settings()
+    log_file = Path(settings.get_log_dir()) / "app.log"
+
+    if not log_file.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": True, "message": "运行日志文件不存在（服务可能刚启动）"},
+        )
+
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": True, "message": f"读取日志失败: {e}"},
+        )
+
+    level_upper = level.upper()
+    if level_upper in ("ERROR", "WARNING", "INFO"):
+        filtered = [ln for ln in all_lines if f"| {level_upper}" in ln]
+    else:
+        filtered = all_lines
+
+    tail = filtered[-tail_lines:]
+
+    return {
+        "filename": str(log_file),
+        "level": level_upper,
+        "total_lines": len(all_lines),
+        "filtered_lines": len(filtered),
+        "returned_lines": len(tail),
+        "content": "".join(tail),
+    }

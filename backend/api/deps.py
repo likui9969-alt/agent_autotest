@@ -33,3 +33,17 @@ def get_log_analyzer():
     """获取日志分析 Agent 单例（复用 LLM 客户端和 VectorStore 连接）"""
     from backend.agent.log_analyzer import LogAnalyzer
     return LogAnalyzer()
+
+
+@lru_cache()
+def get_test_executor():
+    """获取测试执行 Agent 单例（复用日志分析 Agent）"""
+    from backend.agent.test_executor import TestExecutorAgent
+    return TestExecutorAgent(log_analyzer=get_log_analyzer())
+
+
+@lru_cache()
+def get_jira_creator():
+    """获取 JIRA 创建 Agent 单例（复用 LLM 客户端）"""
+    from backend.agent.jira_creator import JiraCreator
+    return JiraCreator(llm_client=get_llm_client())

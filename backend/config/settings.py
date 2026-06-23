@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     JIRA_API_TOKEN: str = ""               # JIRA API Token
     JIRA_PROJECT_KEY: str = ""             # JIRA 项目 Key
 
+    # ==================== Selenium 配置 ====================
+    CHROMEDRIVER_PATH: str = ""           # chromedriver 路径（留空则自动检测项目根目录 / PATH）
+    CHROME_BINARY_PATH: str = ""          # Chrome 浏览器可执行文件路径（留空则使用系统默认）
+
     # ==================== 路径配置 ====================
     DATA_DIR: str = ""                     # 数据存储根目录（留空则自动设为 data/）
     UPLOAD_DIR: str = ""                   # 文档上传目录（留空则自动设为 data/docs/）
@@ -66,6 +70,20 @@ class Settings(BaseSettings):
         if self.LOG_DIR:
             return self.LOG_DIR
         return str(PROJECT_ROOT / "data" / "logs")
+
+    def get_chromedriver_path(self) -> str:
+        """获取 chromedriver 可执行文件路径
+
+        优先级：显式配置 > 项目根目录下的 chromedriver.exe > 系统 PATH（返回空串）
+        """
+        if self.CHROMEDRIVER_PATH:
+            return self.CHROMEDRIVER_PATH
+        # 自动检测项目根目录下的 chromedriver.exe / chromedriver
+        for name in ("chromedriver.exe", "chromedriver"):
+            candidate = PROJECT_ROOT / name
+            if candidate.exists():
+                return str(candidate)
+        return ""
 
     class Config:
         env_file = str(PROJECT_ROOT / ".env")

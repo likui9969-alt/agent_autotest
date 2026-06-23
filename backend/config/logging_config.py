@@ -5,9 +5,17 @@
 import logging
 import sys
 import io
+import warnings
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from .settings import get_settings
+
+# 抑制 LangChain 生态中已知的Pending弃用警告（不影响功能）
+try:
+    from langchain_core._api.deprecation import LangChainPendingDeprecationWarning
+    warnings.filterwarnings("ignore", category=LangChainPendingDeprecationWarning)
+except Exception:
+    pass
 
 
 def setup_logging() -> logging.Logger:

@@ -49,7 +49,7 @@ def run_login_test(request: TestRunRequest) -> TestCaseResult:
         # ---- 步骤 1：打开登录页面 ----
         step_start = time.time()
         try:
-            driver.get(f"{base_url}/login")
+            manager.safe_get(f"{base_url}/login")
             selenium_logs.append("[INFO] 打开登录页面")
             steps.append(TestStepResult(
                 step_name="打开登录页面",
@@ -121,9 +121,11 @@ def run_login_test(request: TestRunRequest) -> TestCaseResult:
         # ---- 步骤 4：点击登录按钮 ----
         step_start = time.time()
         try:
+            # 注意：不要用 "or @type='submit'"，否则会匹配到搜索/下单按钮（它们在 DOM 中更靠前）
+            # element_to_be_clickable 只检查第一个匹配元素，若该元素隐藏会一直等待超时
             login_btn = manager.wait_for_clickable(
                 "xpath",
-                "//button[contains(text(), '登录') or contains(text(), 'Login') or @type='submit']",
+                "//button[contains(text(), '登录') or contains(text(), 'Login') or contains(text(), 'login')]",
                 timeout=10,
             )
             login_btn.click()
@@ -134,19 +136,25 @@ def run_login_test(request: TestRunRequest) -> TestCaseResult:
                 duration_ms=(time.time() - step_start) * 1000,
             ))
         except TimeoutException as e:
-            # 备选：通过 id 或 class 查找按钮
+            # 备选：通过 form 内的 submit 按钮查找
             alt_btn = (
-                manager.safe_find("id", "login-btn", timeout=3)
-                or manager.safe_find("css_selector", ".login-button", timeout=3)
+                manager.safe_find("css_selector", "#login-form button[type='submit']", timeout=3)
+                or manager.safe_find("css_selector", "form button[type='submit']", timeout=3)
+                or manager.safe_find("id", "login-btn", timeout=3)
             )
             if alt_btn:
                 alt_btn.click()
-                steps.append(TestStepResult(step_name="点击登录按钮", status=TestStatus.PASSED))
+                steps.append(TestStepResult(
+                    step_name="点击登录按钮",
+                    status=TestStatus.PASSED,
+                    duration_ms=(time.time() - step_start) * 1000,
+                ))
                 selenium_logs.append("[INFO] 使用备选定位器点击登录按钮")
             else:
                 steps.append(TestStepResult(
                     step_name="点击登录按钮",
                     status=TestStatus.FAILED,
+                    duration_ms=(time.time() - step_start) * 1000,
                     error_message=f"找不到登录按钮: {e}",
                 ))
                 selenium_logs.append(f"[ERROR] NoSuchElementException: 找不到登录按钮")

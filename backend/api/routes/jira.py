@@ -3,17 +3,21 @@ JIRA 集成路由
 POST /api/v1/jira/create — 自动创建 JIRA 缺陷单
 """
 import logging
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from backend.models.jira import JiraCreateRequest, JiraCreateResponse
 from backend.agent.jira_creator import JiraCreator
+from backend.api.deps import get_jira_creator
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["JIRA集成"])
 
 
 @router.post("/create", response_model=JiraCreateResponse)
-async def create_jira_issue(request: JiraCreateRequest):
+async def create_jira_issue(
+    request: JiraCreateRequest,
+    creator: JiraCreator = Depends(get_jira_creator),
+):
     """自动创建 JIRA 缺陷单
 
     基于故障分析结果生成缺陷描述，调用 JIRA API 创建 Issue。
@@ -29,7 +33,6 @@ async def create_jira_issue(request: JiraCreateRequest):
         "assignee": "zhangsan"
     }
     """
-    creator = JiraCreator()
     response = creator.create_issue(request)
 
     if response.status == "success":

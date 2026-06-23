@@ -8,8 +8,8 @@ import json
 import uuid
 import asyncio
 from datetime import datetime
-from fastapi import APIRouter, Request, Depends
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.agent.graph import get_supervisor_graph
@@ -253,35 +253,6 @@ async def execute_agent_stream(request: AgentExecuteRequest):
             "X-Accel-Buffering": "no",
         },
     )
-
-
-def _execute_agent_streaming(task: str, max_iterations: int, event_callback=None) -> dict:
-    """带回调的执行函数（支持流式推送中间状态）"""
-    graph = get_supervisor_graph()
-
-    initial_state: AgentState = {
-        "messages": [],
-        "task_type": "unknown",
-        "user_input": task,
-        "iteration_count": 0,
-        "max_iterations": max_iterations,
-        "tool_calls": [],
-        "tool_results": [],
-        "context": {},
-        "final_response": "",
-        "next_action": "",
-        "error": "",
-    }
-
-    result = graph.invoke(initial_state, {"recursion_limit": 50})
-
-    return {
-        "task_type": result.get("task_type", "unknown"),
-        "final_response": result.get("final_response", ""),
-        "tool_calls_made": len(result.get("tool_results", [])),
-        "iterations": result.get("iteration_count", 0),
-        "error": result.get("error", ""),
-    }
 
 
 def _sse_event(event_type: str, data: dict) -> str:

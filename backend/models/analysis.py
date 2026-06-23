@@ -86,4 +86,6 @@ KNOWN_EXCEPTIONS = [
     "KeyError",
     "ValueError",
     "HTTPError",
+    "AuthError",
+    "AuthenticationError",
 ]

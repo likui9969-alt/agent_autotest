@@ -57,7 +57,7 @@ def run_order_test(request: TestRunRequest) -> TestCaseResult:
         page_loaded = False
         for url in target_urls:
             try:
-                driver.get(url)
+                manager.safe_get(url)
                 selenium_logs.append(f"[INFO] 打开页面: {url}")
                 page_loaded = True
                 break
@@ -135,8 +135,8 @@ def run_order_test(request: TestRunRequest) -> TestCaseResult:
                     field.clear()
                     field.send_keys(fill_value)
                     text_inputs_filled += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    selenium_logs.append(f"[WARN] 填写字段 {field_name} 失败: {e}")
 
         selenium_logs.append(f"[INFO] 填写了 {text_inputs_filled} 个表单字段")
         steps.append(TestStepResult(

@@ -12,7 +12,6 @@
 import re
 import logging
 import uuid
-from datetime import datetime
 
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
@@ -41,17 +40,20 @@ class LogAnalyzer:
         ))
     """
 
-    def __init__(self):
-        """初始化 — 创建共享的 LLM 客户端和检索器（减少资源占用）"""
-        # 创建共享的 LLM 客户端
-        self.llm_client = LLMClient()
-        # 创建检索器，使用共享的 EmbeddingGenerator（内含共享的 LLMClient）
-        self.embedder = EmbeddingGenerator(llm_client=self.llm_client)
-        self.vector_store = VectorStore()
-        self.retriever = Retriever(
-            vector_store=self.vector_store,
-            embedding_generator=self.embedder,
-        )
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        retriever: Retriever | None = None,
+    ):
+        """初始化 — 默认使用全局单例依赖，支持外部注入以减少资源占用"""
+        if llm_client and retriever:
+            self.llm_client = llm_client
+            self.retriever = retriever
+        else:
+            from backend.api.deps import get_llm_client, get_rag_pipeline
+            pipeline = get_rag_pipeline()
+            self.llm_client = llm_client or get_llm_client()
+            self.retriever = retriever or pipeline.retriever
         logger.info("日志分析 Agent 已初始化")
 
     def analyze(self, request: LogAnalysisRequest) -> AnalysisResult:
@@ -127,7 +129,9 @@ class LogAnalyzer:
         #     code...
         # ExceptionType: message
         traceback_pattern = re.compile(
-            r'Traceback\s*\(most recent call last\):(.*?)(?=\n\n|\n(?=[A-Z]\w+:)|\Z)',
+            # 捕获 Traceback 块，直到空行或字符串结尾；
+            # 之前的 (?=\n(?=[A-Z]\w+:)) 会在 "AuthError: ..." 之前截断，导致漏掉异常行。
+            r'Traceback\s*\(most recent call last\):(.*?)(?=\n\n|\Z)',
             re.DOTALL,
         )
         for match in traceback_pattern.finditer(log_content):

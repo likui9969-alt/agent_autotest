@@ -24,8 +24,12 @@ class JiraCreator:
         ))
     """
 
-    def __init__(self):
-        self.llm_client = LLMClient()
+    def __init__(self, llm_client: LLMClient | None = None):
+        if llm_client:
+            self.llm_client = llm_client
+        else:
+            from backend.api.deps import get_llm_client
+            self.llm_client = get_llm_client()
         self.settings = get_settings()
         logger.info("JIRA 创建 Agent 已初始化")
 
@@ -51,9 +55,9 @@ class JiraCreator:
             # JIRA 未配置时返回模拟结果（开发/演示用）
             logger.warning("JIRA 未配置，返回模拟结果")
             return JiraCreateResponse(
-                status="success",
+                status="mock",
                 issue_key="PROJ-DEMO",
-                issue_url=f"{self.settings.JIRA_URL or 'http://jira.example.com'}/browse/PROJ-DEMO",
+                issue_url="http://jira.example.com/browse/PROJ-DEMO",
                 message="JIRA 未配置，此为模拟结果。实际创建请配置 JIRA_URL 等环境变量。",
             )
 

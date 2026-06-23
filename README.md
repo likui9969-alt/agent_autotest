@@ -250,6 +250,22 @@ agentone_test/
 
 ---
 
+## ⚠️ 提交前注意
+
+克隆后请先配置 `.env`（参考 `.env.example`），并确认以下文件已在 `.gitignore` 中排除：
+
+```
+# 必须排除
+.env                # 环境变量（含 API Key）
+chromedriver.exe    # 浏览器驱动（21MB 二进制）
+.mcp.json           # 本地 MCP 配置
+.claude/            # Claude 本地设置
+data/logs/*         # 运行时日志
+data/chroma/*       # Chroma 向量数据库
+```
+
+如新增敏感文件，记得补充到 `.gitignore`。
+
 ## 📄 License
 
 MIT License

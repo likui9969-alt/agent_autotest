@@ -37,3 +37,10 @@ data/screenshots/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 本地配置与工具
+.mcp.json
+.claude/
+chromedriver.exe
+LICENSE.chromedriver
+THIRD_PARTY_NOTICES.chromedriver

@@ -16,6 +16,8 @@ from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
 from backend.models.rag import RAGQueryRequest, RAGQueryResponse, SourceCitation
 
+from backend.api.deps import get_llm_client
+
 logger = logging.getLogger("ai_rd_agent")
 
 
@@ -36,10 +38,10 @@ class RAGPipeline:
         response = pipeline.query("登录接口500错误怎么办")  # RAG 问答
     """
 
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient | None = None):
         """初始化管线各组件（共享 LLMClient 实例以减少资源占用）"""
-        # 创建共享的 LLM 客户端（用于嵌入生成和对话）
-        self.llm_client = LLMClient()
+        # 优先使用注入的 LLM 客户端，否则从全局单例获取
+        self.llm_client = llm_client or get_llm_client()
         # 各组件初始化，EmbeddingGenerator 使用共享的 LLMClient
         self.loader = DocumentLoader()
         self.splitter = TextSplitter()
