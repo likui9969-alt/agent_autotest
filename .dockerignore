@@ -1,34 +1,39 @@
-# ==================== .dockerignore ====================
-# 排除无需进入镜像的文件，减少构建上下文大小和安全风险
-
-# 虚拟环境（本地）
-.venv/
-venv/
-*.egg-info/
-
-# 版本控制
-.git/
+# Git
+.git
 .gitignore
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# 缓存
-__pycache__/
+# Python
+__pycache__
 *.pyc
-.pytest_cache/
-.ruff_cache/
+*.pyo
+*.pyd
+.venv
+venv
+env
+.egg-info
+.pytest_cache
+.mypy_cache
 
-# 本地数据（Chroma 向量库应由卷挂载）
-data/chroma/
+# Data & logs
+data/chroma
+data/logs
+data/backups
+data/*.db
+*.log
 
-# 环境变量（不要将真实密钥打包进镜像）
-.env
-.env.local
+# IDE
+.vscode
+.idea
 
-# 系统文件
-Thumbs.db
+# OS
 .DS_Store
+Thumbs.db
+
+# CI / docs
+.github
+docs
+*.md
+
+# Selenium binaries
+chromedriver.exe
+chromedriver

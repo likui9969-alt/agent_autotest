@@ -834,6 +834,21 @@ class WebDriverManager:
 
         return result
 
+    # ==================== 截图 ====================
+
+    def capture_screenshot_base64(self) -> str:
+        """捕获当前页面截图并返回 base64 编码字符串
+
+        Returns:
+            base64 编码的 PNG 图片字符串；失败返回空字符串
+        """
+        try:
+            driver = self.get_driver()
+            return driver.get_screenshot_as_base64()
+        except Exception as e:
+            logger.warning(f"截图失败: {e}")
+            return ""
+
     # ==================== 生命周期 ====================
 
     def quit(self):

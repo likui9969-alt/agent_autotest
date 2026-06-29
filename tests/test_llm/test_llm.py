@@ -29,7 +29,7 @@ class TestLLMClientChat:
 
     def test_chat_normal_response(self):
         """正常的 chat 调用应返回字符串"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_completion = MagicMock()
             mock_choice = MagicMock()
             mock_choice.message.content = "这是一个测试回复。"
@@ -48,7 +48,7 @@ class TestLLMClientChat:
 
     def test_chat_empty_response(self):
         """空回复应返回空字符串"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_completion = MagicMock()
             mock_choice = MagicMock()
             mock_choice.message.content = ""
@@ -66,7 +66,7 @@ class TestLLMClientChat:
 
     def test_chat_with_temperature_override(self):
         """temperature 覆盖应传递给 API"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_completion = MagicMock()
             mock_choice = MagicMock()
             mock_choice.message.content = "ok"
@@ -88,7 +88,7 @@ class TestLLMClientChat:
 
     def test_chat_streaming(self):
         """流式模式应返回迭代器"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_chunk1 = MagicMock()
             type(mock_chunk1).choices = [MagicMock(delta=MagicMock(content="Hello"))]
 
@@ -107,7 +107,7 @@ class TestLLMClientChat:
 
     def test_chat_api_error(self):
         """API 调用失败应传播异常"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_client = MagicMock()
             mock_client.chat.completions.create.side_effect = Exception("API Error")
             mock_openai.return_value = mock_client
@@ -122,7 +122,7 @@ class TestLLMClientEmbed:
 
     def test_embed_normal(self):
         """正常的嵌入调用应返回向量列表"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_data = [MagicMock(index=0, embedding=[0.1, 0.2, 0.3]),
                          MagicMock(index=1, embedding=[0.4, 0.5, 0.6])]
             mock_response = MagicMock()
@@ -141,14 +141,14 @@ class TestLLMClientEmbed:
 
     def test_embed_empty_list(self):
         """空列表应返回空列表"""
-        with patch("backend.llm.client.OpenAI"):
+        with patch("backend.llm.providers.openai_compatible.OpenAI"):
             client = LLMClient()
             result = client.embed([])
             assert result == []
 
     def test_embed_returns_sorted_by_index(self):
         """嵌入结果应按 index 排序"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_data = [MagicMock(index=1, embedding=[0.4]),
                          MagicMock(index=0, embedding=[0.1])]
             mock_response = MagicMock()
@@ -164,7 +164,7 @@ class TestLLMClientEmbed:
 
     def test_embed_single(self):
         """embed_single 应返回单个向量"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_data = [MagicMock(index=0, embedding=[0.1, 0.2])]
             mock_response = MagicMock()
             mock_response.data = mock_data
@@ -183,7 +183,7 @@ class TestLLMClientChatWithTools:
 
     def test_no_tool_call(self):
         """无工具调用时应返回 content 空 tool_calls"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_msg = MagicMock()
             mock_msg.content = "最终回答"
             mock_msg.tool_calls = None
@@ -206,7 +206,7 @@ class TestLLMClientChatWithTools:
 
     def test_with_tool_call(self):
         """有工具调用时应正确解析"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             # 创建一个模拟的 tool call
             mock_tc = MagicMock()
             mock_tc.id = "call_abc123"
@@ -237,7 +237,7 @@ class TestLLMClientChatWithTools:
 
     def test_invalid_json_in_tool_args(self):
         """工具参数 JSON 无效时应返回空字典"""
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_tc = MagicMock()
             mock_tc.id = "call_bad"
             mock_tc.function.name = "test"
@@ -330,7 +330,7 @@ class TestLLMRetry:
             mock_completion,
         ]
 
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_openai.return_value = mock_client
             client = LLMClient()
             result = client.chat([{"role": "user", "content": "hi"}])
@@ -343,7 +343,7 @@ class TestLLMRetry:
         mock_client = MagicMock()
         mock_client.chat.completions.create.side_effect = httpx.ReadTimeout("persistent")
 
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_openai.return_value = mock_client
 
             client = LLMClient()
@@ -362,7 +362,7 @@ class TestLLMRetry:
             body=None,
         )
 
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_openai.return_value = mock_client
             client = LLMClient()
 
@@ -381,7 +381,7 @@ class TestLLMRetry:
             mock_response,
         ]
 
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_openai.return_value = mock_client
             client = LLMClient()
             result = client.embed(["text"])
@@ -403,7 +403,7 @@ class TestLLMRetry:
             mock_completion,
         ]
 
-        with patch("backend.llm.client.OpenAI") as mock_openai:
+        with patch("backend.llm.providers.openai_compatible.OpenAI") as mock_openai:
             mock_openai.return_value = mock_client
             client = LLMClient()
 

@@ -210,3 +210,23 @@ class VectorStore:
             file_counts[fname]["chunk_count"] += 1
 
         return sorted(file_counts.values(), key=lambda x: x["filename"])
+
+    def get_file_hashes(self) -> dict[str, str]:
+        """获取向量库中所有文档的文件名与 hash 映射
+
+        Returns:
+            {filename: file_hash, ...}
+        """
+        results = self._collection.get(include=["metadatas"])
+        metadatas = results.get("metadatas", [])
+
+        file_hashes: dict[str, str] = {}
+        for meta in metadatas:
+            if not meta:
+                continue
+            filename = meta.get("filename")
+            file_hash = meta.get("file_hash")
+            if filename and file_hash:
+                file_hashes[filename] = file_hash
+
+        return file_hashes

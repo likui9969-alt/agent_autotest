@@ -2,12 +2,13 @@
 RAG 管线编排模块
 将文档加载→切割→嵌入→存储→检索→生成的完整流程串联起来
 """
+import hashlib
 import logging
 import time
 from pathlib import Path
 
 from backend.config.settings import get_settings
-from backend.rag.loader import DocumentLoader
+from backend.rag.loader import DocumentLoader, SUPPORTED_EXTENSIONS
 from backend.rag.splitter import TextSplitter
 from backend.rag.embeddings import EmbeddingGenerator
 from backend.rag.vector_store import VectorStore
@@ -19,6 +20,15 @@ from backend.models.rag import RAGQueryRequest, RAGQueryResponse, SourceCitation
 from backend.api.deps import get_llm_client
 
 logger = logging.getLogger("ai_rd_agent")
+
+
+def _compute_file_hash(file_path: str) -> str:
+    """计算文件内容的 MD5 hash"""
+    try:
+        with open(file_path, "rb") as f:
+            return hashlib.md5(f.read()).hexdigest()
+    except Exception:
+        return ""
 
 
 class RAGPipeline:
@@ -70,17 +80,22 @@ class RAGPipeline:
             logger.warning("文档加载后为空")
             return 0
 
-        # 2. 切割文档
+        # 2. 计算文件 hash 并写入每个文档块的元数据
+        file_hash = _compute_file_hash(file_path)
+        for doc in documents:
+            doc.metadata["file_hash"] = file_hash
+
+        # 3. 切割文档
         chunks = self.splitter.split(documents)
         if not chunks:
             logger.warning("文档切割后为空")
             return 0
 
-        # 3. 生成嵌入向量
+        # 4. 生成嵌入向量
         texts = [chunk.page_content for chunk in chunks]
         embeddings = self.embedder.embed_documents(texts)
 
-        # 4. 写入向量库
+        # 5. 写入向量库
         self.vector_store.add_documents(chunks, embeddings)
 
         logger.info(f"文档索引完成: {file_path} → {len(chunks)} 个块")
@@ -153,6 +168,71 @@ class RAGPipeline:
 
         logger.info(f"批量索引完成: {batch_count} 批次, 共 {total_chunks} 个块")
         return total_chunks
+
+    def ingest_directory_incremental(self, dir_path: str) -> dict:
+        """增量索引目录：只处理新增、修改、删除的文档
+
+        逻辑：
+        - 扫描目录下所有支持格式的文件，计算 MD5
+        - 与向量库中已有的 file_hash 比对
+        - added: 新文件
+        - modified: hash 变化的文件
+        - removed: 库中存在但目录中不存在的文件
+        - 其他文件保持不变
+
+        Args:
+            dir_path: 文档目录路径
+
+        Returns:
+            {"added": int, "modified": int, "removed": int, "unchanged": int, "chunks": int}
+        """
+        logger.info(f"开始增量索引目录: {dir_path}")
+        dir_path = Path(dir_path)
+        if not dir_path.exists():
+            logger.warning(f"目录不存在: {dir_path}")
+            return {"added": 0, "modified": 0, "removed": 0, "unchanged": 0, "chunks": 0}
+
+        # 1. 扫描当前文件
+        current_files: dict[str, str] = {}
+        for ext in SUPPORTED_EXTENSIONS:
+            for file_path in dir_path.glob(f"*{ext}"):
+                if file_path.is_file():
+                    current_files[file_path.name] = _compute_file_hash(str(file_path))
+
+        # 2. 获取向量库中已有文件的 hash
+        existing_files = self.vector_store.get_file_hashes()
+
+        added = set(current_files) - set(existing_files)
+        removed = set(existing_files) - set(current_files)
+        modified = {
+            f for f in set(current_files) & set(existing_files)
+            if current_files[f] != existing_files[f]
+        }
+        unchanged = set(current_files) - added - modified
+
+        total_chunks = 0
+
+        # 3. 删除已移除文件
+        for filename in removed:
+            self.vector_store.delete_document(filename)
+
+        # 4. 处理新增和修改文件
+        for filename in added | modified:
+            file_path = dir_path / filename
+            total_chunks += self.ingest_file(str(file_path))
+
+        logger.info(
+            f"增量索引完成: 新增 {len(added)} 个, 修改 {len(modified)} 个, "
+            f"删除 {len(removed)} 个, 未变 {len(unchanged)} 个, "
+            f"共 {total_chunks} 个块"
+        )
+        return {
+            "added": len(added),
+            "modified": len(modified),
+            "removed": len(removed),
+            "unchanged": len(unchanged),
+            "chunks": total_chunks,
+        }
 
     # ==================== RAG 查询 ====================
 

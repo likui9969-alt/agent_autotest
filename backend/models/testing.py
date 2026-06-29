@@ -13,6 +13,7 @@ class TestStatus(str, Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     ERROR = "error"
+    CANCELLED = "cancelled"
 
 
 class TestScenario(str, Enum):
@@ -97,6 +98,7 @@ class TestCaseResult(BaseModel):
     steps: list[TestStepResult] = Field(default_factory=list, description="各步骤结果")
     error_message: str = Field(default="", description="整体错误信息")
     selenium_logs: str = Field(default="", description="Selenium 执行日志")
+    screenshot_base64: str = Field(default="", description="失败时页面截图的 base64 编码")
 
 
 # ==================== 测试报告 ====================

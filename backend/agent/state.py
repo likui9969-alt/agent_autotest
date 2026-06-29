@@ -37,6 +37,10 @@ class AgentState(TypedDict):
     # 本轮待执行的工具调用 [{name, args, id}, ...]
     tool_results: Annotated[list[dict[str, Any]], operator.add]
     # 工具执行结果 [{tool_name, output, error}, ...]
+    tool_history: Annotated[list[dict[str, Any]], operator.add]
+    # 已执行工具调用历史 [{tool_name, tool_args, timestamp}, ...]，用于循环检测
+    token_usage: Annotated[list[dict[str, Any]], operator.add]
+    # LLM Token 消耗记录 [{prompt_tokens, completion_tokens, total_tokens}, ...]
 
     # ---- 上下文/中间结果 ----
     context: dict[str, Any]
@@ -69,3 +73,7 @@ class AgentState(TypedDict):
 
     memory_context: str
     # 格式化后的对话历史上下文，由 supervisor_node 注入
+
+    # ---- 任务取消 ----
+    task_id: str
+    # 当前任务唯一标识，用于任务取消

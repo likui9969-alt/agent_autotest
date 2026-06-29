@@ -52,13 +52,13 @@ class JiraCreator:
 
         # ---- 步骤 2：调用 JIRA API 创建 Issue ----
         if not self.settings.JIRA_URL:
-            # JIRA 未配置时返回模拟结果（开发/演示用）
-            logger.warning("JIRA 未配置，返回模拟结果")
+            # JIRA 未配置时明确跳过，避免误导 Agent
+            logger.warning("JIRA 未配置，跳过创建")
             return JiraCreateResponse(
-                status="mock",
-                issue_key="PROJ-DEMO",
-                issue_url="http://jira.example.com/browse/PROJ-DEMO",
-                message="JIRA 未配置，此为模拟结果。实际创建请配置 JIRA_URL 等环境变量。",
+                status="skipped",
+                issue_key="",
+                issue_url="",
+                message="JIRA 未配置（缺少 JIRA_URL），无法创建缺陷单。请在 .env 中配置 JIRA_URL、JIRA_USERNAME、JIRA_API_TOKEN、JIRA_PROJECT_KEY。",
             )
 
         try:
@@ -92,6 +92,46 @@ class JiraCreator:
         except Exception as e:
             logger.warning(f"LLM 优化缺陷描述失败: {e}")
             return None
+
+    def check_connection(self) -> dict:
+        """检查 JIRA 连接状态
+
+        Returns:
+            {"status": "connected" | "unconfigured" | "failed", "message": str}
+        """
+        import httpx
+
+        if not self.settings.JIRA_URL:
+            return {
+                "status": "unconfigured",
+                "message": "JIRA 未配置（缺少 JIRA_URL）",
+            }
+
+        jira_url = self.settings.JIRA_URL.rstrip("/")
+        check_url = f"{jira_url}/rest/api/2/serverInfo"
+        auth = (self.settings.JIRA_USERNAME, self.settings.JIRA_API_TOKEN)
+
+        try:
+            with httpx.Client(trust_env=False, timeout=10) as client:
+                response = client.get(check_url, auth=auth, headers={"Content-Type": "application/json"})
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "status": "connected",
+                    "message": f"连接成功（JIRA {data.get('version', 'unknown')}）",
+                    "base_url": jira_url,
+                    "version": data.get("version", ""),
+                }
+            else:
+                return {
+                    "status": "failed",
+                    "message": f"JIRA 返回错误 {response.status_code}: {response.text[:200]}",
+                }
+        except Exception as e:
+            return {
+                "status": "failed",
+                "message": f"连接失败: {str(e)}",
+            }
 
     def _call_jira_api(self, request: JiraCreateRequest) -> JiraCreateResponse:
         """调用 JIRA REST API 创建 Issue"""

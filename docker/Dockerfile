@@ -1,61 +1,49 @@
 # ==================== 多阶段构建 Dockerfile ====================
-# Stage 1: 依赖安装
+# Stage 1: 依赖安装（编译重型依赖，减少最终镜像层）
 FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# 安装系统依赖（Chrome 和 Chromium 用于 Selenium）
+# 安装编译依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    gnupg \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# 安装 Chromium（Selenium headless 模式所需）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    chromium-driver \
-    && rm -rf /var/lib/apt/lists/*
-
-# 设置 Chromium 可执行路径环境变量（供 Selenium driver 检测）
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
-
-# 复制依赖文件
+# 安装 Python 依赖到独立前缀
 COPY requirements.txt .
-
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ==================== Stage 2: 运行镜像 ====================
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# 安装 Chromium 运行时依赖 + curl（供健康检查使用）
+# 安装 Chromium 运行时依赖 + curl（健康检查）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 从 builder 复制已安装的 Python 包
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-
 # 设置 Chromium 环境变量（供 Selenium 使用）
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+ENV PYTHONUNBUFFERED=1
+ENV LOG_FORMAT=json
+
+# 从 builder 复制已安装的 Python 包
+COPY --from=builder /install /usr/local
 
 # 复制项目代码
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
-COPY data/ ./data/
 COPY scripts/ ./scripts/
 
 # 创建非 root 用户运行
 RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /app
 USER appuser
 
-# 健康检查 — 使用实际 /health 端点（验证 LLM/Chroma/Web 服务三层连通性）
+# 健康检查 — 验证后端核心接口
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -sf http://localhost:8000/health || exit 1
 

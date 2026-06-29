@@ -2,6 +2,8 @@
 Agent 工具定义模块
 使用 LangChain @tool 装饰器，将后端能力封装为 Agent 可调用的工具函数
 """
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -380,7 +382,53 @@ def get_system_status() -> str:
     return "\n".join(lines)
 
 
-# ==================== 工具 7：读取代码文件 ====================
+# ==================== 工具 7：测试用例自动生成 ====================
+
+@tool
+def generate_test_cases(requirement: str, scenario: str = "", count: int = 5) -> str:
+    """根据自然语言需求自动生成结构化测试用例。
+
+    使用场景：
+    - 用户给出一个功能需求，需要快速生成测试用例
+    - Agent 分析完被测页面后，基于页面结构生成针对性用例
+    - 批量生成登录/搜索/下单等核心场景的用例
+
+    Args:
+        requirement: 需求描述，例如 "用户登录功能"
+        scenario: 补充场景说明（可选）
+        count: 期望生成的用例数量（1~20，默认 5）
+
+    Returns:
+        生成的测试用例列表文本，包含模块、标题、步骤、预期结果和优先级。
+    """
+    from backend.agent.test_generator import TestCaseGenerator
+    from backend.models.test_case import TestCaseGenerateRequest
+
+    request = TestCaseGenerateRequest(
+        requirement=requirement,
+        scenario=scenario or requirement,
+        count=max(1, min(int(count), 20)),
+    )
+    generator = TestCaseGenerator()
+    cases = generator.generate(request)
+
+    if not cases:
+        return "未能生成测试用例，请检查需求描述是否清晰。"
+
+    lines = [f"已生成 {len(cases)} 条测试用例："]
+    for i, case in enumerate(cases, 1):
+        lines.append(
+            f"\n[{i}] {case.title}（优先级：{case.priority}）\n"
+            f"模块：{case.module}\n"
+            f"目标：{case.objective}\n"
+            f"前置：{case.preconditions}\n"
+            f"步骤：\n" + "\n".join(f"  {j+1}. {s}" for j, s in enumerate(case.steps)) + "\n"
+            f"预期：{case.expected_result}"
+        )
+    return "\n".join(lines)
+
+
+# ==================== 工具 8：读取代码文件 ====================
 
 @tool
 def read_code_file(file_path: str, max_lines: int = 100) -> str:
@@ -600,6 +648,8 @@ def explore_website(url: str, headless: bool = True) -> str:
     - 自动识别页面类型（登录页/搜索页/其他）
     - 为后续自定义测试步骤提供定位器信息
 
+    探索结果会自动存入页面知识库，同一 URL 在 30 天内会直接复用缓存。
+
     Args:
         url: 要探索的网站 URL，例如 https://www.baidu.com
         headless: 是否使用无头模式，默认 True
@@ -607,50 +657,80 @@ def explore_website(url: str, headless: bool = True) -> str:
     Returns:
         页面结构信息：标题、URL、页面类型、输入框/按钮/链接列表。
     """
-    import json
+    import time
+    from backend.rag.page_knowledge import get_page_knowledge_store, compute_page_hash
+    from backend.models.page import PageKnowledge, PageElement
     from backend.selenium_driver.driver import WebDriverManager
+
+    store = get_page_knowledge_store()
+    cached = store.get_by_url(url)
+    if cached and not store.is_expired(cached):
+        return _format_page_knowledge(cached, cached=True)
 
     manager = WebDriverManager(headless=headless, timeout_seconds=30)
     try:
         manager.create_driver()
         manager.safe_get(url)
-
-        import time
         time.sleep(2)  # 等待页面动态加载
 
         page_info = manager.explore_page()
+        page_hash = compute_page_hash(page_info)
 
-        # 格式化为可读文本
-        lines = [
-            f"页面标题: {page_info['title']}",
-            f"当前 URL: {page_info['url']}",
-            f"页面类型: {page_info['page_type']}",
-            "",
-            f"输入框 ({len(page_info['inputs'])} 个):",
-        ]
-        for i, inp in enumerate(page_info["inputs"]):
-            lines.append(
-                f"  [{i+1}] type={inp['type']}, name={inp['name']}, id={inp['id']}, "
-                f"placeholder={inp['placeholder'][:30]}, 定位: {inp['by']}={inp['value']}"
-            )
+        # 转换字典为模型
+        page = PageKnowledge(
+            id=page_hash,
+            url=page_info.get("url", url),
+            title=page_info.get("title", ""),
+            page_type=page_info.get("page_type", "unknown"),
+            inputs=[PageElement(**i) for i in page_info.get("inputs", [])],
+            buttons=[PageElement(**b) for b in page_info.get("buttons", [])],
+            links=[PageElement(**l) for l in page_info.get("links", [])],
+            forms=page_info.get("forms", []),
+            page_hash=page_hash,
+            html_summary=page_info.get("title", ""),
+        )
 
-        lines.append(f"\n按钮 ({len(page_info['buttons'])} 个):")
-        for i, btn in enumerate(page_info["buttons"]):
-            lines.append(
-                f"  [{i+1}] text={btn['text']}, type={btn['type']}, "
-                f"id={btn['id']}, 定位: {btn['by']}={btn['value'][:50]}"
-            )
-
-        lines.append(f"\n链接 ({len(page_info['links'])} 个):")
-        for i, link in enumerate(page_info["links"][:10]):
-            lines.append(f"  [{i+1}] text={link['text']}, href={link['href'][:80]}")
-
-        return "\n".join(lines)
+        old_page = cached
+        store.save(page)
+        return _format_page_knowledge(page, cached=False, old_page=old_page)
 
     except Exception as e:
         return f"网站探索失败: {e}"
     finally:
         manager.quit()
+
+
+def _format_page_knowledge(page: PageKnowledge, cached: bool = False, old_page=None) -> str:
+    """格式化 PageKnowledge 为可读文本"""
+    header = "（来自缓存）" if cached else "（ freshly explored）"
+    lines = [
+        f"页面标题: {page.title} {header}",
+        f"当前 URL: {page.url}",
+        f"页面类型: {page.page_type}",
+        "",
+        f"输入框 ({len(page.inputs)} 个):",
+    ]
+    for i, inp in enumerate(page.inputs):
+        lines.append(
+            f"  [{i+1}] type={inp.type}, name={inp.name}, id={inp.id}, "
+            f"placeholder={inp.placeholder[:30]}, 定位: {inp.by}={inp.value}"
+        )
+
+    lines.append(f"\n按钮 ({len(page.buttons)} 个):")
+    for i, btn in enumerate(page.buttons):
+        lines.append(
+            f"  [{i+1}] text={btn.text}, type={btn.type}, "
+            f"id={btn.id}, 定位: {btn.by}={btn.value[:50]}"
+        )
+
+    lines.append(f"\n链接 ({len(page.links)} 个):")
+    for i, link in enumerate(page.links[:10]):
+        lines.append(f"  [{i+1}] text={link.text}, href={link.href[:80]}")
+
+    if old_page and old_page.page_hash != page.page_hash:
+        lines.append("\n⚠️ 页面较上次探索已发生变化，知识库已更新。")
+
+    return "\n".join(lines)
 
 
 # ==================== 工具 13：执行自定义测试场景 ====================
@@ -749,6 +829,7 @@ ALL_TOOLS = [
     create_jira_issue_tool,
     get_runtime_logs,
     get_system_status,
+    generate_test_cases,
     read_code_file,
     list_directory,
     run_shell_command,

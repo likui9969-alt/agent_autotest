@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # ==================== LLM 主 Provider 配置 ====================
+    LLM_PROVIDER: str = "dashscope"
+    # 默认 LLM Provider: dashscope / openai / ollama
+
     # ==================== LLM 配置（阿里云百炼 DashScope） ====================
     DASHSCOPE_API_KEY: str = ""           # 百炼 API Key
     DASHSCOPE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -68,9 +72,15 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.1           # 生成温度，越低越稳定
     LLM_MAX_TOKENS: int = 4096             # 最大输出 token 数
 
+    # ==================== LLM 配置（OpenAI 官方） ====================
+    OPENAI_API_KEY: str = ""              # OpenAI API Key
+    OPENAI_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL: str = "gpt-4o-mini"     # OpenAI 对话模型名称
+    OPENAI_EMBED_MODEL: str = "text-embedding-3-small"  # OpenAI 嵌入模型名称
+
     # ==================== LLM 回退（Fallback）配置 ====================
     LLM_FALLBACK_ENABLED: bool = False
-    # 是否启用 LLM 回退。启用后当主 LLM（DashScope）不可用时自动切换到本地 Ollama。
+    # 是否启用 LLM 回退。启用后当主 LLM 不可用时自动切换到备用 Provider。
     LLM_PROVIDERS: list[str] = ["dashscope"]
     # provider 优先级列表。默认只走 dashscope。设置 ["dashscope", "ollama"] 启用回退。
     OLLAMA_URL: str = ""

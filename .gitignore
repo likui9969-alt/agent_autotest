@@ -24,6 +24,8 @@ env/
 data/docs/*
 data/logs/*
 data/chroma/*
+data/reports.db
+data/backups/*
 !data/docs/.gitkeep
 !data/logs/.gitkeep
 !data/chroma/.gitkeep

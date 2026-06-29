@@ -13,6 +13,12 @@ logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["JIRA集成"])
 
 
+@router.get("/status")
+async def jira_status(creator: JiraCreator = Depends(get_jira_creator)):
+    """检查 JIRA 连接状态"""
+    return creator.check_connection()
+
+
 @router.post("/create", response_model=JiraCreateResponse)
 async def create_jira_issue(
     request: JiraCreateRequest,

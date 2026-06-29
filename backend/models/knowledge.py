@@ -46,3 +46,14 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentItem] = Field(default_factory=list, description="文档列表")
     total_documents: int = Field(default=0, description="文档总数")
     total_chunks: int = Field(default=0, description="向量块总数")
+
+
+class IncrementalIndexResponse(BaseModel):
+    """增量索引响应"""
+    status: str = Field(..., description="操作状态")
+    added: int = Field(default=0, description="新增文档数")
+    modified: int = Field(default=0, description="修改文档数")
+    removed: int = Field(default=0, description="删除文档数")
+    unchanged: int = Field(default=0, description="未变化文档数")
+    chunks_created: int = Field(default=0, description="新增/修改产生的块数")
+    message: str = Field(default="", description="操作结果描述")

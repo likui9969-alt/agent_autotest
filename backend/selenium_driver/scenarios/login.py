@@ -69,7 +69,7 @@ def run_login_test(request: TestRunRequest, shared_manager: WebDriverManager | N
                 error_message=f"页面加载超时: {e}",
             ))
             selenium_logs.append(f"[ERROR] TimeoutException: {e}")
-            return _build_result("login", steps, start_time, False, "", selenium_logs)
+            return _build_result("login", steps, start_time, False, "", selenium_logs, manager)
 
         # ---- 步骤 2：输入用户名 ----
         step_start = time.time()
@@ -200,6 +200,7 @@ def run_login_test(request: TestRunRequest, shared_manager: WebDriverManager | N
             "login", steps, start_time, all_passed,
             "" if all_passed else "部分步骤执行失败",
             selenium_logs,
+            manager,
         )
 
     except Exception as e:
@@ -210,7 +211,7 @@ def run_login_test(request: TestRunRequest, shared_manager: WebDriverManager | N
             status=TestStatus.ERROR,
             error_message=str(e),
         ))
-        return _build_result("login", steps, start_time, False, str(e), selenium_logs)
+        return _build_result("login", steps, start_time, False, str(e), selenium_logs, manager)
     finally:
         if own_manager:
             manager.quit()
@@ -223,10 +224,18 @@ def _build_result(
     all_passed: bool,
     error_message: str,
     selenium_logs: list[str],
+    manager=None,
 ) -> TestCaseResult:
     """构建测试用例结果"""
     end_time = datetime.now()
     duration_ms = (end_time - start_time).total_seconds() * 1000
+
+    screenshot_base64 = ""
+    if not all_passed and manager is not None:
+        try:
+            screenshot_base64 = manager.capture_screenshot_base64()
+        except Exception:
+            pass
 
     return TestCaseResult(
         scenario=scenario,
@@ -237,4 +246,5 @@ def _build_result(
         steps=steps,
         error_message=error_message,
         selenium_logs="\n".join(selenium_logs),
+        screenshot_base64=screenshot_base64,
     )

@@ -1,8 +1,9 @@
 """
 知识库管理路由
-POST   /api/v1/knowledge/upload   — 上传文档并索引
-GET    /api/v1/knowledge/stats    — 查看知识库统计
-POST   /api/v1/knowledge/rebuild  — 重建向量库
+POST   /api/v1/knowledge/upload      — 上传文档并索引
+GET    /api/v1/knowledge/stats       — 查看知识库统计
+POST   /api/v1/knowledge/rebuild     — 重建向量库
+POST   /api/v1/knowledge/incremental — 增量索引目录
 """
 import os
 import logging
@@ -16,10 +17,12 @@ from backend.models.knowledge import (
     DocumentUploadResponse,
     KnowledgeBaseStats,
     RebuildResponse,
+    IncrementalIndexResponse,
     DocumentListResponse,
     DocumentItem,
 )
 from backend.api.deps import get_rag_pipeline
+from backend.rag.page_knowledge import get_page_knowledge_store
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["知识库管理"])
@@ -158,7 +161,38 @@ async def rebuild_knowledge_base():
         )
 
 
-@router.get("/docs", response_model=DocumentListResponse)
+@router.post("/incremental", response_model=IncrementalIndexResponse)
+async def incremental_index_knowledge_base():
+    """增量索引：只处理新增、修改、删除的文档"""
+    try:
+        settings = get_settings()
+        upload_dir = settings.get_upload_dir()
+
+        pipeline = get_rag_pipeline()
+        result = pipeline.ingest_directory_incremental(upload_dir)
+
+        return IncrementalIndexResponse(
+            status="success",
+            added=result["added"],
+            modified=result["modified"],
+            removed=result["removed"],
+            unchanged=result["unchanged"],
+            chunks_created=result["chunks"],
+            message=(
+                f"增量索引完成：新增 {result['added']} 个，"
+                f"修改 {result['modified']} 个，删除 {result['removed']} 个，"
+                f"未变 {result['unchanged']} 个，共 {result['chunks']} 个块"
+            ),
+        )
+    except Exception as e:
+        logger.error(f"增量索引失败: {e}", exc_info=True)
+        return IncrementalIndexResponse(
+            status="failed",
+            message=f"增量索引失败: {str(e)}",
+        )
+
+
+@router.get("/documents", response_model=DocumentListResponse)
 async def list_knowledge_docs():
     """获取知识库中已上传文档列表"""
     settings = get_settings()
@@ -188,3 +222,37 @@ async def list_knowledge_docs():
         total_documents=len(docs),
         total_chunks=total_chunks,
     )
+
+
+# ==================== 页面知识管理 ====================
+
+@router.get("/pages")
+async def list_page_knowledge(limit: int = 100):
+    """列出已缓存的页面知识"""
+    store = get_page_knowledge_store()
+    pages = store.list_pages(limit=limit)
+    return {
+        "total": len(pages),
+        "pages": [p.model_dump() for p in pages],
+    }
+
+
+@router.get("/pages/search")
+async def search_page_knowledge(query: str, top_k: int = 5):
+    """语义搜索页面知识"""
+    store = get_page_knowledge_store()
+    pages = store.search(query, top_k=top_k)
+    return {
+        "query": query,
+        "results": [p.model_dump() for p in pages],
+    }
+
+
+@router.delete("/pages")
+async def delete_page_knowledge(url: str):
+    """删除指定 URL 的页面知识"""
+    store = get_page_knowledge_store()
+    success = store.delete_page(url)
+    if not success:
+        return JSONResponse(status_code=404, content={"error": True, "message": "页面知识不存在"})
+    return {"status": "success", "message": "已删除"}

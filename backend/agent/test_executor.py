@@ -46,11 +46,16 @@ class TestExecutorAgent:
             self.log_analyzer = get_log_analyzer()
         logger.info("测试执行 Agent 已初始化")
 
-    def run_tests(self, request: TestRunRequest) -> TestReport:
+    def run_tests(
+        self,
+        request: TestRunRequest,
+        cancel_event=None,
+    ) -> TestReport:
         """执行整个测试套件
 
         Args:
             request: 测试执行请求（场景、目标 URL、配置参数）
+            cancel_event: 可选的线程事件，用于接收取消信号
 
         Returns:
             完整的测试报告
@@ -61,38 +66,63 @@ class TestExecutorAgent:
         results = []
         use_mock = request.sandbox or not self._chrome_available()
 
-        # 真实浏览器模式下创建共享浏览器实例（仅开一次 Chrome）
-        shared_manager = None
+        # 真实浏览器模式下创建 SessionManager（同批次共享一个 WebDriver）
+        session_manager = None
         if not use_mock:
-            from backend.selenium_driver.driver import WebDriverManager
-            shared_manager = WebDriverManager(
-                headless=request.headless,
-                timeout_seconds=request.timeout_seconds,
-            )
+            from backend.selenium_driver.session_manager import SessionManager
             try:
-                shared_manager.create_driver()
+                session_manager = SessionManager(
+                    headless=request.headless,
+                    timeout_seconds=request.timeout_seconds,
+                )
+                session_manager.create_driver()
             except Exception as e:
                 logger.warning(f"共享浏览器创建失败，回退到各场景独立实例: {e}")
-                shared_manager = None
+                session_manager = None
 
         try:
             # 执行预定义场景
             for scenario in request.scenarios:
+                if cancel_event and cancel_event.is_set():
+                    logger.info(f"测试套件 [{report_id}] 收到取消信号，停止执行")
+                    break
                 if scenario == TestScenario.CUSTOM:
                     continue
-                result = self.run_single_scenario(scenario, request, use_mock, shared_manager)
+                if session_manager is not None:
+                    session_manager.isolate(request.base_url)
+                result = self.run_single_scenario(scenario, request, use_mock, session_manager)
                 results.append(result)
 
             # 执行自定义场景
             for custom_scn in request.custom_scenarios:
-                result = self.run_custom_scenario(custom_scn, request, shared_manager)
+                if cancel_event and cancel_event.is_set():
+                    logger.info(f"测试套件 [{report_id}] 收到取消信号，停止执行")
+                    break
+                if session_manager is not None:
+                    session_manager.isolate(request.base_url)
+                result = self.run_custom_scenario(custom_scn, request, session_manager)
                 results.append(result)
         finally:
-            if shared_manager:
+            if session_manager is not None:
                 try:
-                    shared_manager.quit()
+                    session_manager.end_session()
                 except Exception:
                     pass
+
+        # 将未执行的场景标记为 cancelled
+        all_scenario_names = [
+            s.value for s in request.scenarios if s != TestScenario.CUSTOM
+        ] + [cs.name for cs in request.custom_scenarios]
+        executed_names = {r.scenario for r in results}
+        for name in all_scenario_names:
+            if name not in executed_names:
+                results.append(TestCaseResult(
+                    scenario=name,
+                    status=TestStatus.CANCELLED,
+                    error_message="任务已取消",
+                    start_time=datetime.now(),
+                    end_time=datetime.now(),
+                ))
 
         # 统计
         total = len(results)

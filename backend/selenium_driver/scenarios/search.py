@@ -185,13 +185,14 @@ def run_search_test(request: TestRunRequest, shared_manager: WebDriverManager | 
             steps, start_time, all_passed,
             "" if all_passed else "搜索流程存在问题",
             selenium_logs,
+            manager,
         )
 
     except Exception as e:
         logger.error(f"搜索测试异常: {e}", exc_info=True)
         selenium_logs.append(f"[FATAL] {type(e).__name__}: {e}")
         return _build_search_result(
-            steps, start_time, False, str(e), selenium_logs,
+            steps, start_time, False, str(e), selenium_logs, manager,
         )
     finally:
         if own_manager:
@@ -204,10 +205,18 @@ def _build_search_result(
     all_passed: bool,
     error_message: str,
     selenium_logs: list[str],
+    manager=None,
 ) -> TestCaseResult:
     """构建搜索测试结果"""
     end_time = datetime.now()
     duration_ms = (end_time - start_time).total_seconds() * 1000
+
+    screenshot_base64 = ""
+    if not all_passed and manager is not None:
+        try:
+            screenshot_base64 = manager.capture_screenshot_base64()
+        except Exception:
+            pass
 
     return TestCaseResult(
         scenario="search",
@@ -218,4 +227,5 @@ def _build_search_result(
         steps=steps,
         error_message=error_message,
         selenium_logs="\n".join(selenium_logs),
+        screenshot_base64=screenshot_base64,
     )

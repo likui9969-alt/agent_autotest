@@ -18,6 +18,7 @@ def register_routes(app: FastAPI):
         ("analysis", "analysis", "/api/v1/analysis"),  # 日志分析
         ("testing", "testing", "/api/v1/testing"),  # 自动化测试
         ("jira", "jira", "/api/v1/jira"),         # JIRA 集成
+        ("test_cases", "test_cases", "/api/v1/test-cases"),  # 测试用例管理
         ("agents", "agents", "/api/v1/agent"),    # Agent 执行（LangGraph + ReAct）
     ]
 
