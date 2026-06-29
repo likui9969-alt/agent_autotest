@@ -62,3 +62,10 @@ class AgentState(TypedDict):
     # ---- 错误信息 ----
     error: str
     # 异常发生时记录错误描述
+
+    # ---- 对话记忆（多轮会话） ----
+    session_id: str
+    # 会话唯一标识，为空时不启用记忆
+
+    memory_context: str
+    # 格式化后的对话历史上下文，由 supervisor_node 注入

@@ -87,7 +87,7 @@ class RAGPipeline:
         return len(chunks)
 
     def ingest_directory(self, dir_path: str) -> int:
-        """索引目录下所有支持的文档
+        """索引目录下所有支持的文档（一次性加载）
 
         Args:
             dir_path: 文档目录路径
@@ -95,26 +95,64 @@ class RAGPipeline:
         Returns:
             总共生成的块数量
         """
+        return self.ingest_directory_batch(dir_path, batch_size=0)
+
+    def ingest_directory_batch(self, dir_path: str, batch_size: int = 10) -> int:
+        """分批索引目录下所有支持的文档（流式处理）
+
+        每批次加载 batch_size 个文件，执行切割→嵌入→存储后立即释放内存，
+        避免大目录下全量加载到内存。
+
+        Args:
+            dir_path: 文档目录路径
+            batch_size: 每批文件数。设为 0 或 None 时一次性加载所有文件（兼容旧行为）
+
+        Returns:
+            总共生成的块数量
+        """
         logger.info(f"开始批量索引目录: {dir_path}")
 
-        # 1. 加载目录下所有文档
-        documents = self.loader.load_directory(dir_path)
-        if not documents:
-            logger.warning("目录中没有找到支持的文档")
-            return 0
+        if not batch_size:
+            # 一次性加载（兼容旧行为）
+            documents = self.loader.load_directory(dir_path)
+            if not documents:
+                logger.warning("目录中没有找到支持的文档")
+                return 0
 
-        # 2. 切割
-        chunks = self.splitter.split(documents)
+            chunks = self.splitter.split(documents)
+            texts = [chunk.page_content for chunk in chunks]
+            embeddings = self.embedder.embed_documents(texts)
+            self.vector_store.add_documents(chunks, embeddings)
+            logger.info(f"批量索引完成: {len(documents)} 个文件 → {len(chunks)} 个块")
+            return len(chunks)
 
-        # 3. 嵌入
-        texts = [chunk.page_content for chunk in chunks]
-        embeddings = self.embedder.embed_documents(texts)
+        # 分批流式处理
+        total_chunks = 0
+        batch_count = 0
 
-        # 4. 存储
-        self.vector_store.add_documents(chunks, embeddings)
+        for batch_docs in self.loader.load_directory_batch(dir_path, batch_size=batch_size):
+            if not batch_docs:
+                continue
 
-        logger.info(f"批量索引完成: {len(documents)} 个文件 → {len(chunks)} 个块")
-        return len(chunks)
+            batch_count += 1
+            chunks = self.splitter.split(batch_docs)
+
+            if chunks:
+                texts = [chunk.page_content for chunk in chunks]
+                try:
+                    embeddings = self.embedder.embed_documents(texts)
+                    self.vector_store.add_documents(chunks, embeddings)
+                    total_chunks += len(chunks)
+                    logger.info(
+                        f"  批次 {batch_count} 完成: {len(batch_docs)} 文件 → {len(chunks)} 块 "
+                        f"(累计: {total_chunks} 块)"
+                    )
+                except Exception as e:
+                    logger.error(f"批次 {batch_count} 处理失败: {e}")
+                    # 继续处理下一批
+
+        logger.info(f"批量索引完成: {batch_count} 批次, 共 {total_chunks} 个块")
+        return total_chunks
 
     # ==================== RAG 查询 ====================
 
@@ -207,6 +245,25 @@ class RAGPipeline:
         if Path(target_dir).exists():
             return self.ingest_directory(target_dir)
         return 0
+
+    def delete_document(self, filename: str) -> int:
+        """按文件名删除知识库中的文档
+
+        Args:
+            filename: 文档文件名
+
+        Returns:
+            删除的块数量
+        """
+        return self.vector_store.delete_document(filename)
+
+    def get_documents(self) -> list[dict]:
+        """列出知识库中的所有文档
+
+        Returns:
+            [{filename, chunk_count}, ...]
+        """
+        return self.vector_store.get_documents()
 
     def stats(self) -> dict:
         """获取知识库统计信息"""

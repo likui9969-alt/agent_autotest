@@ -20,6 +20,33 @@ class TestScenario(str, Enum):
     LOGIN = "login"       # 登录流程测试
     SEARCH = "search"     # 搜索流程测试
     ORDER = "order"       # 下单流程测试
+    CUSTOM = "custom"     # 自定义场景
+
+
+# ==================== 自定义场景模型 ====================
+
+class CustomStepAction(str, Enum):
+    """自定义步骤操作类型"""
+    NAVIGATE = "navigate"     # 打开 URL
+    INPUT = "input"           # 输入文本
+    CLICK = "click"           # 点击元素
+    VERIFY = "verify"         # 验证元素存在
+    WAIT = "wait"             # 等待秒数
+
+
+class CustomTestStep(BaseModel):
+    """自定义测试步骤"""
+    action: CustomStepAction = Field(..., description="操作类型")
+    # 定位方式（navigate/wait 不需要）
+    by: str = Field(default="id", description="定位方式: id/name/xpath/css_selector/class_name/tag_name/link_text")
+    value: str = Field(default="", description="定位值或输入内容或URL或等待秒数")
+    description: str = Field(default="", description="步骤描述（可选）")
+
+
+class CustomScenario(BaseModel):
+    """自定义测试场景"""
+    name: str = Field(..., description="场景名称")
+    steps: list[CustomTestStep] = Field(default_factory=list, description="测试步骤列表")
 
 
 # ==================== 请求模型 ====================
@@ -40,6 +67,10 @@ class TestRunRequest(BaseModel):
     sandbox: bool = Field(
         default=False,
         description="沙盒模式：模拟 Selenium 执行（无需 Chrome，用于演示）"
+    )
+    custom_scenarios: list[CustomScenario] = Field(
+        default_factory=list,
+        description="自定义测试场景列表（当 scenarios 含 custom 时使用）"
     )
 
 

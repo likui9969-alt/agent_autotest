@@ -40,6 +40,20 @@ class LLMException(AppException):
         super().__init__(message, status_code=502)
 
 
+class AuthException(AppException):
+    """认证/授权异常"""
+
+    def __init__(self, message: str = "认证失败"):
+        super().__init__(message, status_code=401)
+
+
+class ForbiddenException(AppException):
+    """权限不足异常"""
+
+    def __init__(self, message: str = "无权访问该资源"):
+        super().__init__(message, status_code=403)
+
+
 class RAGException(AppException):
     """RAG 管线异常"""
 

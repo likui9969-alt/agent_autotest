@@ -8,6 +8,8 @@ import os
 import sys
 import shutil
 import subprocess
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -18,6 +20,80 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, SessionNotCreatedException
 
 logger = logging.getLogger("ai_rd_agent")
+
+# 缓存：Chrome 版本号（进程内缓存，避免每次创建 WebDriver 都调注册表）
+_CACHED_CHROME_VERSION: int | None = None
+_CACHED_CHROME_FULL_VERSION: str = ""
+
+# chromedriver 缓存条目
+_CACHE_TTL_SECONDS = 24 * 3600  # 24 小时
+
+
+@dataclass
+class _CachedDriver:
+    """chromedriver 缓存条目 — 包含路径、版本号和缓存时间"""
+    path: str
+    version: int | None  # chromedriver 主版本号
+    cached_at: float     # time.time() 缓存时刻
+
+    def is_valid(self, chrome_version: int | None) -> bool:
+        """判断缓存是否仍然有效
+
+        生效条件：
+        1. chromedriver 可执行文件仍然存在
+        2. 版本与当前 Chrome 主版本匹配（chrome_version 为 None 时跳过）
+        3. 缓存未过期（24 小时内）
+        """
+        if not Path(self.path).exists():
+            return False
+        if chrome_version is not None and self.version is not None and self.version != chrome_version:
+            return False
+        if time.time() - self.cached_at > _CACHE_TTL_SECONDS:
+            return False
+        return True
+
+
+# 全局缓存：selenium-manager 自动下载的 chromedriver 路径
+# 避免每次创建 WebDriver 都触发 selenium-manager 检查（耗时 4-5 分钟）
+_CACHED_DRIVER: _CachedDriver | None = None
+
+
+def _find_cached_chromedriver() -> str:
+    """查找 selenium-manager 缓存的 chromedriver 路径
+
+    selenium-manager 下载的 chromedriver 存放在固定缓存目录中。
+    如果能找到，直接返回路径，避免重复调用 selenium-manager。
+    """
+    import os
+    import glob
+    from pathlib import Path
+
+    # selenium-manager 缓存目录
+    if sys.platform == "win32":
+        cache_base = Path(os.environ.get("LOCALAPPDATA", "")) / "selenium-manager" / "chromedriver"
+    elif sys.platform == "darwin":
+        cache_base = Path.home() / "Library" / "Caches" / "selenium-manager" / "chromedriver"
+    else:
+        cache_base = Path.home() / ".cache" / "selenium-manager" / "chromedriver"
+
+    if not cache_base.exists():
+        # 也尝试旧版路径
+        if sys.platform == "win32":
+            cache_base = Path(os.environ.get("USERPROFILE", "")) / ".cache" / "selenium-manager" / "chromedriver"
+        else:
+            cache_base = Path.home() / ".cache" / "selenium-manager" / "chromedriver"
+
+    if not cache_base.exists():
+        return ""
+
+    # 查找最新的 chromedriver 可执行文件
+    patterns = ["**/chromedriver.exe", "**/chromedriver"]
+    for pattern in patterns:
+        matches = sorted(cache_base.glob(pattern), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        if matches:
+            return str(matches[0])
+
+    return ""
 
 
 def detect_chrome() -> tuple[str, str]:
@@ -131,25 +207,186 @@ def _get_chromedriver_major_version(driver_path: str) -> int | None:
         return None
 
 
-def _get_chrome_major_version() -> int | None:
-    """获取已安装 Chrome 浏览器的主版本号（Windows 注册表）
+def _get_chrome_major_version(chrome_binary: str = "") -> int | None:
+    """获取已安装 Chrome 浏览器的主版本号（结果缓存，仅首次查询注册表）"""
+    global _CACHED_CHROME_VERSION
+    if _CACHED_CHROME_VERSION is not None:
+        return _CACHED_CHROME_VERSION
 
-    Returns:
-        主版本号（如 148），获取失败返回 None
-    """
     import sys
-    if sys.platform != "win32":
-        return None
+
+    # Windows：优先注册表（不触发浏览器弹窗）
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["reg", "query", r"HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon", "/v", "version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            match = re.search(r"(\d+)\.", result.stdout)
+            if match:
+                _CACHED_CHROME_VERSION = int(match.group(1))
+                return _CACHED_CHROME_VERSION
+        except Exception:
+            pass
+
+        # 注册表回退：也查一下 LocalAppData 下的 User Data/Local State
+        try:
+            lad = os.environ.get("LOCALAPPDATA", "")
+            pref_path = os.path.join(lad, "Google", "Chrome", "User Data", "Local State")
+            if os.path.exists(pref_path):
+                import json
+                with open(pref_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                ver = state.get("user_experience_metrics", {}).get("stability", {}).get("browser_version", "")
+                if ver:
+                    match = re.search(r"(\d+)\.", ver)
+                    if match:
+                        _CACHED_CHROME_VERSION = int(match.group(1))
+                        return _CACHED_CHROME_VERSION
+        except Exception:
+            pass
+
+    # 非 Windows 或注册表失败：执行 chrome --version（不弹窗的平台）
+    binary = chrome_binary or ""
+    if not binary and sys.platform == "win32":
+        pf = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        pf86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        lad = os.environ.get("LOCALAPPDATA", "")
+        for candidate in [
+            rf"{lad}\Google\Chrome\Application\chrome.exe",
+            rf"{pf}\Google\Chrome\Application\chrome.exe",
+            rf"{pf86}\Google\Chrome\Application\chrome.exe",
+        ]:
+            if Path(candidate).exists():
+                binary = candidate
+                break
+
+    if binary and Path(binary).exists():
+        try:
+            result = subprocess.run(
+                [binary, "--version"],
+                capture_output=True, text=True, timeout=15,
+            )
+            match = re.search(r"(\d+)\.", result.stdout)
+            if match:
+                _CACHED_CHROME_VERSION = int(match.group(1))
+                return _CACHED_CHROME_VERSION
+        except Exception:
+            pass
+
+    return None
+
+
+def _get_chrome_full_version(chrome_binary: str = "") -> str:
+    """获取 Chrome 完整版本号字符串（结果缓存，仅首次查询注册表）"""
+    global _CACHED_CHROME_FULL_VERSION
+    if _CACHED_CHROME_FULL_VERSION:
+        return _CACHED_CHROME_FULL_VERSION
+
+    import sys
+
+    # Windows：优先注册表（不触发浏览器弹窗）
+    if sys.platform == "win32":
+        try:
+            result = subprocess.run(
+                ["reg", "query", r"HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon", "/v", "version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            match = re.search(r"(\d+\.\d+\.\d+\.\d+)", result.stdout)
+            if match:
+                _CACHED_CHROME_FULL_VERSION = match.group(1)
+                return _CACHED_CHROME_FULL_VERSION
+        except Exception:
+            pass
+
+    # 非 Windows 或注册表失败：执行 chrome --version
+    binary = chrome_binary or ""
+    if not binary and sys.platform == "win32":
+        lad = os.environ.get("LOCALAPPDATA", "")
+        candidates = [
+            rf"{lad}\Google\Chrome\Application\chrome.exe",
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                binary = c
+                break
+
+    if binary and Path(binary).exists():
+        try:
+            result = subprocess.run(
+                [binary, "--version"],
+                capture_output=True, text=True, timeout=15,
+            )
+            match = re.search(r"(\d+\.\d+\.\d+\.\d+)", result.stdout)
+            if match:
+                _CACHED_CHROME_FULL_VERSION = match.group(1)
+                return _CACHED_CHROME_FULL_VERSION
+        except Exception:
+            pass
+    return ""
+
+
+def _inject_anti_detect(driver: webdriver.Chrome) -> None:
+    """通过 CDP 注入脚本隐藏自动化特征"""
     try:
-        result = subprocess.run(
-            ["reg", "query", r"HKEY_CURRENT_USER\Software\Google\Chrome\BLBeacon", "/v", "version"],
-            capture_output=True, text=True, timeout=10,
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": """
+                    // 1. 隐藏 webdriver 标记
+                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+
+                    // 2. 补全 window.chrome
+                    if (!window.chrome) {
+                        window.chrome = {};
+                    }
+                    window.chrome.runtime = window.chrome.runtime || { OnInstalledReason: { CHROME_UPDATE: "chrome_update", EXTENSION_UPDATE: "extension_update", INSTALL: "install" }, OnRestartRequiredReason: { APP_UPDATE: "app_update", OS_UPDATE: "os_update" }, PlatformArch: { ARM: "arm", ARM64: "arm64", MIPS: "mips", MIPS64: "mips64", MIPS64EL: "mips64el", MIPSEL: "mipsel", X86_32: "x86-32", X86_64: "x86-64" }, PlatformNaclArch: { ARM: "arm", MIPS: "mips", MIPS64: "mips64", MIPS64EL: "mips64el", MIPSEL: "mipsel", Mips32: "mips32", Mips64: "mips64", X86_32: "x86-32", X86_64: "x86-64" }, PlatformOs: { ANDROID: "android", CROS: "cros", LINUX: "linux", MAC: "mac", OPENBSD: "openbsd", WIN: "win" }, RequestUpdateCheckStatus: { NO_UPDATE: "no_update", THROTTLED: "throttled", UPDATE_AVAILABLE: "update_available" } };
+
+                    // 3. 模拟插件
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => {
+                            return [
+                                { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format', version: 'undefined', length: 1, item: function(idx) { return this[idx]; }, namedItem: function(name) { return null; } },
+                                { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '', version: 'undefined', length: 1, item: function(idx) { return this[idx]; }, namedItem: function(name) { return null; } },
+                                { name: 'Native Client', filename: 'internal-nacl-plugin', description: '', version: 'undefined', length: 2, item: function(idx) { return this[idx]; }, namedItem: function(name) { return null; } }
+                            ];
+                        }
+                    });
+
+                    // 4. 模拟语言
+                    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] });
+
+                    // 5. 覆盖 permissions.query，避免被检测无头模式
+                    if (navigator.permissions && navigator.permissions.query) {
+                        const originalQuery = navigator.permissions.query;
+                        navigator.permissions.query = function(parameters) {
+                            if (parameters && parameters.name === 'notifications') {
+                                return Promise.resolve({ state: Notification.permission });
+                            }
+                            return originalQuery.call(this, parameters);
+                        };
+                    }
+
+                    // 6. 覆盖 Notification.permission
+                    if (window.Notification) {
+                        Object.defineProperty(Notification, 'permission', { get: () => 'default' });
+                    }
+
+                    // 7. 修复 iFrame 里的 webdriver 标记
+                    try {
+                        const iframes = document.getElementsByTagName('iframe');
+                        for (var i = 0; i < iframes.length; i++) {
+                            var win = iframes[i].contentWindow;
+                            if (win && win.navigator) {
+                                Object.defineProperty(win.navigator, 'webdriver', { get: () => undefined });
+                            }
+                        }
+                    } catch (e) {}
+                """
+            }
         )
-        # 输出含: version    REG_SZ    148.0.7778.97
-        match = re.search(r"(\d+)\.", result.stdout)
-        return int(match.group(1)) if match else None
-    except Exception:
-        return None
+    except Exception as e:
+        logger.debug(f"CDP 反检测脚本注入失败: {e}")
 
 
 class WebDriverManager:
@@ -186,11 +423,15 @@ class WebDriverManager:
         self._wait: WebDriverWait | None = None
 
     def create_driver(self) -> webdriver.Chrome:
-        """创建并配置 Chrome WebDriver 实例
+        """创建并配置 Chrome WebDriver 实例（幂等：已有实例则直接返回）
 
         Returns:
             配置好的 Chrome WebDriver
         """
+        if self._driver is not None:
+            logger.debug("复用已有的 WebDriver 实例")
+            return self._driver
+
         logger.info(f"创建 Chrome WebDriver (headless={self.headless})")
 
         options = Options()
@@ -199,9 +440,9 @@ class WebDriverManager:
         # 避免等待图片/字体等资源加载完成，显著减少 renderer 超时
         options.page_load_strategy = "eager"
 
-        # 无头模式：使用旧版 --headless（比 --headless=new 更稳定，renderer 超时更少）
+        # 无头模式：使用新版 --headless=new（反检测能力更强，行为更接近真实浏览器）
         if self.headless:
-            options.add_argument("--headless")
+            options.add_argument("--headless=new")
             options.add_argument("--disable-gpu")
 
         # ---- 稳定性优化参数（解决 Windows 下 renderer 超时） ----
@@ -234,23 +475,66 @@ class WebDriverManager:
         if chrome_binary:
             options.binary_location = chrome_binary
 
+        # 反检测：使用与 Chrome 版本匹配的 User-Agent
+        chrome_full_ver = _get_chrome_full_version(chrome_binary)
+        if chrome_full_ver:
+            options.add_argument(
+                f"--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                f"AppleWebKit/537.36 (KHTML, like Gecko) "
+                f"Chrome/{chrome_full_ver} Safari/537.36"
+            )
+
         try:
             # 使用 Service 对象指定 chromedriver 路径
             from selenium.webdriver.chrome.service import Service as ChromeService
             driver_path = settings.get_chromedriver_path()
 
+            # ---- 优先使用全局缓存的 chromedriver 路径 ----
+            global _CACHED_DRIVER
+            chrome_ver = _get_chrome_major_version(chrome_binary)
+            if _CACHED_DRIVER and _CACHED_DRIVER.is_valid(chrome_ver):
+                cached_path = _CACHED_DRIVER.path
+                logger.info(f"使用缓存的 chromedriver: {cached_path} (v{_CACHED_DRIVER.version})")
+                service = ChromeService(executable_path=cached_path)
+                try:
+                    self._driver = webdriver.Chrome(service=service, options=options)
+                except SessionNotCreatedException:
+                    # 缓存的驱动可能已失效，清除缓存并继续正常流程
+                    logger.warning("缓存的 chromedriver 失效，重新检测")
+                    _CACHED_DRIVER = None
+                    driver_path = ""
+                else:
+                    self._driver.set_page_load_timeout(max(self.timeout_seconds, 60))
+                    self._driver.implicitly_wait(3)
+                    self._wait = WebDriverWait(self._driver, self.timeout_seconds)
+                    _inject_anti_detect(self._driver)
+                    logger.info("Chrome WebDriver 创建成功（使用缓存驱动）")
+                    return self._driver
+
             # ---- 版本兼容性检查 ----
-            # 如果本地 chromedriver 版本与 Chrome 版本不匹配，跳过本地驱动，
-            # 让 Selenium 4.11+ 内置的 selenium-manager 自动下载匹配版本
+            # 如果本地 chromedriver 版本与 Chrome 版本不匹配，优先从缓存目录找匹配版本，
+            # 否则让 Selenium 4.11+ 内置的 selenium-manager 自动下载匹配版本
             if driver_path:
                 drv_ver = _get_chromedriver_major_version(driver_path)
-                chrome_ver = _get_chrome_major_version()
                 if drv_ver and chrome_ver and drv_ver != chrome_ver:
                     logger.warning(
                         f"chromedriver 版本不匹配: 本地驱动 v{drv_ver}，Chrome v{chrome_ver}。"
-                        f"跳过本地驱动，使用 Selenium 自动下载匹配版本。"
+                        f"尝试寻找缓存中的匹配版本或让 Selenium 自动下载。"
                     )
-                    driver_path = ""  # 清空，让 Selenium 自动管理
+                    # 在缓存目录中查找与 Chrome 主版本匹配的驱动
+                    cached = _find_cached_chromedriver()
+                    if cached:
+                        cached_ver = _get_chromedriver_major_version(cached)
+                        if cached_ver == chrome_ver:
+                            logger.info(f"找到缓存的匹配驱动 v{cached_ver}: {cached}")
+                            _CACHED_DRIVER = _CachedDriver(
+                                path=cached, version=cached_ver, cached_at=time.time()
+                            )
+                            driver_path = cached
+                        else:
+                            driver_path = ""  # 清空，让 Selenium 自动管理
+                    else:
+                        driver_path = ""  # 清空，让 Selenium 自动管理
                 elif drv_ver and chrome_ver:
                     logger.info(f"chromedriver 版本匹配: 驱动 v{drv_ver}，Chrome v{chrome_ver}")
 
@@ -258,8 +542,18 @@ class WebDriverManager:
                 logger.info(f"使用本地 chromedriver: {driver_path}")
                 service = ChromeService(executable_path=driver_path)
             else:
-                logger.info("使用 Selenium 内置驱动管理器自动下载 chromedriver")
-                service = ChromeService()
+                # 先尝试从 selenium-manager 缓存目录查找已下载的 chromedriver
+                cached = _find_cached_chromedriver()
+                if cached:
+                    cached_ver = _get_chromedriver_major_version(cached)
+                    logger.info(f"从缓存目录找到 chromedriver: {cached}")
+                    _CACHED_DRIVER = _CachedDriver(
+                        path=cached, version=cached_ver, cached_at=time.time()
+                    )
+                    service = ChromeService(executable_path=cached)
+                else:
+                    logger.info("使用 Selenium 内置驱动管理器自动下载 chromedriver")
+                    service = ChromeService()
 
             try:
                 self._driver = webdriver.Chrome(service=service, options=options)
@@ -274,9 +568,21 @@ class WebDriverManager:
                 else:
                     raise
 
+            # 缓存成功使用的 chromedriver 路径（如果是自动下载的）
+            if not driver_path and not _CACHED_DRIVER:
+                # 尝试从 selenium-manager 日志中提取路径，或直接查找缓存目录
+                cached = _find_cached_chromedriver()
+                if cached:
+                    cached_ver = _get_chromedriver_major_version(cached)
+                    _CACHED_DRIVER = _CachedDriver(
+                        path=cached, version=cached_ver, cached_at=time.time()
+                    )
+                    logger.info(f"已缓存 chromedriver 路径供后续使用: {cached}")
+
             self._driver.set_page_load_timeout(max(self.timeout_seconds, 60))
             self._driver.implicitly_wait(3)  # 隐式等待 3 秒（减少以避免与显式等待叠加）
             self._wait = WebDriverWait(self._driver, self.timeout_seconds)
+            _inject_anti_detect(self._driver)
             logger.info("Chrome WebDriver 创建成功")
             return self._driver
         except Exception as e:
@@ -430,6 +736,103 @@ class WebDriverManager:
         self.driver.save_screenshot(str(filepath))
         logger.info(f"截图已保存: {filepath}")
         return str(filepath)
+
+    # ==================== 页面探索 ====================
+
+    def explore_page(self) -> dict:
+        """探索当前页面，提取表单、输入框、按钮等元素信息
+
+        用于 Agent 自适应测试：先打开页面，再根据页面结构决定如何测试。
+
+        Returns:
+            {
+                "title": 页面标题,
+                "url": 当前 URL,
+                "page_type": 推测的页面类型 (login/search/unknown),
+                "forms": 表单列表,
+                "inputs": 输入框列表,
+                "buttons": 按钮列表,
+                "links": 链接列表,
+            }
+        """
+        from selenium.webdriver.common.by import By
+
+        result = {
+            "title": self.driver.title or "",
+            "url": self.driver.current_url or "",
+            "page_type": "unknown",
+            "forms": [],
+            "inputs": [],
+            "buttons": [],
+            "links": [],
+        }
+
+        # 提取输入框
+        try:
+            inputs = self.driver.find_elements(By.TAG_NAME, "input")
+            for inp in inputs:
+                inp_type = inp.get_attribute("type") or "text"
+                result["inputs"].append({
+                    "type": inp_type,
+                    "name": inp.get_attribute("name") or "",
+                    "id": inp.get_attribute("id") or "",
+                    "placeholder": inp.get_attribute("placeholder") or "",
+                    "by": "id" if inp.get_attribute("id") else ("name" if inp.get_attribute("name") else "css_selector"),
+                    "value": inp.get_attribute("id") or inp.get_attribute("name") or f"input[type='{inp_type}']",
+                })
+        except Exception:
+            pass
+
+        # 提取按钮
+        try:
+            buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            for btn in buttons:
+                result["buttons"].append({
+                    "text": (btn.text or "").strip()[:50],
+                    "type": btn.get_attribute("type") or "button",
+                    "id": btn.get_attribute("id") or "",
+                    "name": btn.get_attribute("name") or "",
+                    "by": "id" if btn.get_attribute("id") else "xpath",
+                    "value": btn.get_attribute("id") or f"//button[contains(text(),'{(btn.text or '').strip()[:20]}')]",
+                })
+        except Exception:
+            pass
+
+        # 提取链接（最多 20 个）
+        try:
+            links = self.driver.find_elements(By.TAG_NAME, "a")
+            for link in links[:20]:
+                result["links"].append({
+                    "text": (link.text or "").strip()[:50],
+                    "href": link.get_attribute("href") or "",
+                })
+        except Exception:
+            pass
+
+        # 推测页面类型
+        title_lower = result["title"].lower()
+        url_lower = result["url"].lower()
+        input_types = [i["type"] for i in result["inputs"]]
+        button_texts = [b["text"].lower() for b in result["buttons"]]
+
+        has_password = "password" in input_types
+        has_login_keyword = any(
+            kw in title_lower or kw in url_lower or any(kw in bt for bt in button_texts)
+            for kw in ["登录", "login", "sign in", "log in"]
+        )
+        has_search_keyword = any(
+            kw in title_lower or kw in url_lower
+            for kw in ["搜索", "search", "百度", "google"]
+        )
+
+        if has_password and has_login_keyword:
+            result["page_type"] = "login"
+        elif has_search_keyword or (len(result["inputs"]) == 1 and result["inputs"][0]["type"] == "text"):
+            result["page_type"] = "search"
+        else:
+            result["page_type"] = "unknown"
+
+        return result
 
     # ==================== 生命周期 ====================
 

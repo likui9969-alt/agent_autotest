@@ -19,6 +19,42 @@ class Settings(BaseSettings):
     APP_NAME: str = "AI研发效能智能体"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
+    ALLOWED_ORIGINS: list[str] = ["*"]
+    # CORS 允许的源，留空或 ["*"] 表示允许所有。生产环境应设为具体域名。
+    API_TOKEN: str = ""
+    # API 访问 Token。配置后所有 API 请求需携带 Authorization: Bearer <token>。
+    # 留空时不启用认证（向后兼容）。
+
+    # ==================== 日志配置 ====================
+    LOG_FORMAT: str = "text"
+    # 日志输出格式: "text"（人类可读）或 "json"（Logstash 兼容 JSON，推荐容器生产环境使用）
+
+    # ==================== 速率限制配置 ====================
+    RATE_LIMIT_ENABLED: bool = True
+    # 是否启用速率限制。生产环境建议启用，开发调试可关闭。
+    RATE_LIMIT_DEFAULT: str = "30/minute"
+    # 默认速率限制（每 IP），格式: "<次数>/<时间单位>"。支持 second/minute/hour/day。
+    # P0 关键端点和 Agent 端点使用独立限制（见下方）。
+
+    # ==================== Agent 执行配置 ====================
+    AGENT_TIMEOUT_SECONDS: int = 120
+    # Agent 单次执行超时时间（秒）。超过该时间未完成则强制终止。
+    AGENT_RECURSION_LIMIT: int = 50
+    # LangGraph recursion_limit，控制图遍历最大深度。AGENT_TIMEOUT_SECONDS * 2 为经验参考值。
+
+    # ==================== LLM 重试配置 ====================
+    LLM_RETRY_MAX_ATTEMPTS: int = 3
+    LLM_RETRY_BASE_DELAY: float = 1.0
+    LLM_RETRY_MAX_DELAY: float = 8.0
+    # LLM 调用失败时指数退避重试参数：delay = base_delay * 2^attempt + jitter
+
+    # ==================== LLM 熔断器配置 ====================
+    LLM_CIRCUIT_BREAKER_THRESHOLD: int = 5
+    # 连续失败 N 次后熔断器开启（后续请求快速失败，不再调用 LLM）
+    LLM_CIRCUIT_BREAKER_RECOVERY: float = 30.0
+    # 熔断开启后等待多少秒进入 HALF_OPEN 探测状态
+    LLM_CIRCUIT_BREAKER_SUCCESS: int = 2
+    # HALF_OPEN 下连续成功 N 次后完全恢复
 
     # ==================== 服务器配置 ====================
     HOST: str = "0.0.0.0"
@@ -31,6 +67,18 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-v3"  # 嵌入模型名称
     LLM_TEMPERATURE: float = 0.1           # 生成温度，越低越稳定
     LLM_MAX_TOKENS: int = 4096             # 最大输出 token 数
+
+    # ==================== LLM 回退（Fallback）配置 ====================
+    LLM_FALLBACK_ENABLED: bool = False
+    # 是否启用 LLM 回退。启用后当主 LLM（DashScope）不可用时自动切换到本地 Ollama。
+    LLM_PROVIDERS: list[str] = ["dashscope"]
+    # provider 优先级列表。默认只走 dashscope。设置 ["dashscope", "ollama"] 启用回退。
+    OLLAMA_URL: str = ""
+    # Ollama 服务地址，如 "http://localhost:11434/v1"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
+    # Ollama 对话模型名称
+    OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
+    # Ollama 嵌入模型名称
 
     # ==================== RAG 配置 ====================
     CHUNK_SIZE: int = 1000                 # 文档切分块大小
@@ -52,6 +100,7 @@ class Settings(BaseSettings):
     DATA_DIR: str = ""                     # 数据存储根目录（留空则自动设为 data/）
     UPLOAD_DIR: str = ""                   # 文档上传目录（留空则自动设为 data/docs/）
     LOG_DIR: str = ""                      # 日志存储目录（留空则自动设为 data/logs/）
+    BACKUP_DIR: str = ""                   # Chroma 备份存储目录（留空则自动设为 data/backups/）
 
     def get_chroma_dir(self) -> str:
         """获取 Chroma 持久化目录的绝对路径"""
@@ -70,6 +119,14 @@ class Settings(BaseSettings):
         if self.LOG_DIR:
             return self.LOG_DIR
         return str(PROJECT_ROOT / "data" / "logs")
+
+    def get_backup_dir(self) -> str:
+        """获取 Chroma 备份存储目录的绝对路径"""
+        if self.BACKUP_DIR:
+            return self.BACKUP_DIR
+        backup = PROJECT_ROOT / "data" / "backups"
+        backup.mkdir(parents=True, exist_ok=True)
+        return str(backup)
 
     def get_chromedriver_path(self) -> str:
         """获取 chromedriver 可执行文件路径

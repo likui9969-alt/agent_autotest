@@ -14,9 +14,14 @@ from pydantic import BaseModel, Field
 
 from backend.agent.graph import get_supervisor_graph
 from backend.agent.state import AgentState
+from backend.agent.memory import SessionMemoryManager
+from backend.config.settings import get_settings
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["Agent执行"])
+
+# 全局会话记忆管理器
+_session_manager = SessionMemoryManager(max_sessions=100)
 
 
 # ==================== 请求模型 ====================
@@ -30,6 +35,7 @@ class AgentExecuteRequest(BaseModel):
     )
     max_iterations: int = Field(default=5, ge=1, le=10, description="ReAct 最大迭代次数")
     stream: bool = Field(default=False, description="是否使用 SSE 流式返回")
+    session_id: str = Field(default="", description="会话标识（用于多轮对话记忆，留空则不启用记忆）")
 
 
 class AgentExecuteResponse(BaseModel):
@@ -45,7 +51,7 @@ class AgentExecuteResponse(BaseModel):
 
 # ==================== 核心执行逻辑 ====================
 
-def _execute_agent(task: str, max_iterations: int) -> dict:
+def _execute_agent(task: str, max_iterations: int, session_id: str = "", memory_context: str = "") -> dict:
     """执行 Agent 任务的核心逻辑
 
     Args:
@@ -69,10 +75,13 @@ def _execute_agent(task: str, max_iterations: int) -> dict:
         "final_response": "",
         "next_action": "",
         "error": "",
+        "session_id": session_id,
+        "memory_context": memory_context,
     }
 
     # 执行图
-    result = graph.invoke(initial_state, {"recursion_limit": 50})
+    recursion_limit = get_settings().AGENT_RECURSION_LIMIT
+    result = graph.invoke(initial_state, {"recursion_limit": recursion_limit})
 
     # 提取结果
     tool_calls_made = len(result.get("tool_results", []))
@@ -86,6 +95,7 @@ def _execute_agent(task: str, max_iterations: int) -> dict:
         "error": result.get("error", ""),
         "messages": result.get("messages", []),
         "tool_results": result.get("tool_results", []),
+        "session_id": session_id,
     }
 
 
@@ -103,15 +113,40 @@ async def execute_agent(request: AgentExecuteRequest):
     """
     task_id = str(uuid.uuid4())[:8]
     start_time = datetime.now()
+    settings = get_settings()
+    timeout = request.max_iterations * 30 if request.task_type == "auto" else settings.AGENT_TIMEOUT_SECONDS
+
+    # 多轮对话记忆
+    memory_context = ""
+    if request.session_id:
+        memory = _session_manager.get_or_create(request.session_id)
+        memory_context = memory.format_context(limit=5)
+        logger.info(f"[Agent {task_id}] 会话 {request.session_id}: {memory.turn_count} 轮历史")
 
     logger.info(f"[Agent API {task_id}] 收到任务: {request.task[:100]}...")
 
     try:
-        # 在线程池中执行（避免阻塞事件循环）
-        result = await asyncio.to_thread(
-            _execute_agent,
-            request.task,
-            request.max_iterations,
+        # 在线程池中执行（避免阻塞事件循环），带超时控制
+        result = await asyncio.wait_for(
+            asyncio.to_thread(
+                _execute_agent,
+                request.task,
+                request.max_iterations,
+                request.session_id,
+                memory_context,
+            ),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[Agent API {task_id}] 执行超时 (>{timeout}s)")
+        return AgentExecuteResponse(
+            task_id=task_id,
+            task_type="timeout",
+            final_response=f"Agent 执行超时（超过 {timeout} 秒）。请尝试简化问题描述或增加 max_iterations。",
+            tool_calls_made=0,
+            iterations=0,
+            execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+            error=f"执行超时 ({timeout}s)",
         )
     except Exception as e:
         logger.error(f"[Agent API {task_id}] 执行失败: {e}", exc_info=True)
@@ -237,6 +272,10 @@ async def execute_agent_stream(request: AgentExecuteRequest):
                 "iterations": iter_count,
                 "time_ms": (datetime.now() - start_time).total_seconds() * 1000,
             })
+
+        except asyncio.TimeoutError:
+            logger.error(f"[Agent SSE {task_id}] 执行超时")
+            yield _sse_event("error", {"message": f"执行超时（超过设置时间）"})
 
         except Exception as e:
             logger.error(f"[Agent SSE {task_id}] 错误: {e}", exc_info=True)

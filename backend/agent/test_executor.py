@@ -10,8 +10,10 @@ from backend.models.testing import (
     TestRunRequest,
     TestReport,
     TestCaseResult,
+    TestStepResult,
     TestStatus,
     TestScenario,
+    CustomScenario,
 )
 from backend.agent.log_analyzer import LogAnalyzer
 from backend.models.analysis import LogAnalysisRequest
@@ -57,9 +59,40 @@ class TestExecutorAgent:
         logger.info(f"开始执行测试套件 [{report_id}]: {len(request.scenarios)} 个场景")
 
         results = []
-        for scenario in request.scenarios:
-            result = self._run_single_scenario(scenario, request)
-            results.append(result)
+        use_mock = request.sandbox or not self._chrome_available()
+
+        # 真实浏览器模式下创建共享浏览器实例（仅开一次 Chrome）
+        shared_manager = None
+        if not use_mock:
+            from backend.selenium_driver.driver import WebDriverManager
+            shared_manager = WebDriverManager(
+                headless=request.headless,
+                timeout_seconds=request.timeout_seconds,
+            )
+            try:
+                shared_manager.create_driver()
+            except Exception as e:
+                logger.warning(f"共享浏览器创建失败，回退到各场景独立实例: {e}")
+                shared_manager = None
+
+        try:
+            # 执行预定义场景
+            for scenario in request.scenarios:
+                if scenario == TestScenario.CUSTOM:
+                    continue
+                result = self.run_single_scenario(scenario, request, use_mock, shared_manager)
+                results.append(result)
+
+            # 执行自定义场景
+            for custom_scn in request.custom_scenarios:
+                result = self.run_custom_scenario(custom_scn, request, shared_manager)
+                results.append(result)
+        finally:
+            if shared_manager:
+                try:
+                    shared_manager.quit()
+                except Exception:
+                    pass
 
         # 统计
         total = len(results)
@@ -92,30 +125,28 @@ class TestExecutorAgent:
         )
         return report
 
-    def _run_single_scenario(
+    def run_single_scenario(
         self,
         scenario: TestScenario,
         request: TestRunRequest,
+        use_mock: bool = False,
+        shared_manager=None,
     ) -> TestCaseResult:
         """执行单个测试场景
-
-        优先使用真实 Selenium；当 sandbox=True 或 Chrome 不可用时使用 mock 模式。
 
         Args:
             scenario: 测试场景枚举
             request: 测试请求参数
+            use_mock: 是否使用沙盒模式
+            shared_manager: 共享浏览器实例
 
         Returns:
             用例执行结果
         """
         logger.info(f"  执行场景: {scenario.value} (sandbox={request.sandbox})")
 
-        # 判断是否使用沙盒模式
-        use_mock = request.sandbox or not self._chrome_available()
-
         try:
             if use_mock:
-                # ---- 沙盒模式：模拟 Selenium 执行 ----
                 from backend.selenium_driver.scenarios.mock_scenarios import (
                     run_mock_login_test,
                     run_mock_search_test,
@@ -127,7 +158,6 @@ class TestExecutorAgent:
                     TestScenario.ORDER: run_mock_order_test,
                 }
             else:
-                # ---- 真实 Selenium 模式 ----
                 from backend.selenium_driver.scenarios.login import run_login_test
                 from backend.selenium_driver.scenarios.search import run_search_test
                 from backend.selenium_driver.scenarios.order import run_order_test
@@ -145,8 +175,8 @@ class TestExecutorAgent:
                     error_message=f"未知场景: {scenario.value}",
                 )
 
-            # 调用场景执行函数（mock 或真实 Selenium）
-            result = runner(request)
+            # 传入共享浏览器实例
+            result = runner(request, shared_manager)
             logger.info(
                 f"  场景 {scenario.value} 完成: {result.status.value} "
                 f"({result.duration_ms:.0f}ms){' [MOCK]' if use_mock else ''}"
@@ -185,6 +215,73 @@ class TestExecutorAgent:
 
         logger.info(f"Chrome 检测通过: browser={chrome_binary}, driver={driver_path}")
         return True
+
+    def run_custom_scenario(
+        self,
+        scenario: "CustomScenario",
+        request: TestRunRequest,
+        shared_manager=None,
+    ) -> TestCaseResult:
+        """执行自定义测试场景
+
+        Args:
+            scenario: 自定义场景定义
+            request: 测试请求参数
+            shared_manager: 共享浏览器实例
+
+        Returns:
+            用例执行结果
+        """
+        from backend.models.testing import CustomScenario  # noqa: F811
+
+        logger.info(f"  执行自定义场景: {scenario.name} ({len(scenario.steps)} 步)")
+
+        if request.sandbox or not self._chrome_available():
+            # 沙盒模式：模拟执行
+            logger.info(f"  自定义场景 {scenario.name} 使用沙盒模式")
+            return self._mock_custom_scenario(scenario)
+
+        try:
+            from backend.selenium_driver.scenarios.custom import run_custom_scenario
+            result = run_custom_scenario(request, scenario, shared_manager)
+            logger.info(
+                f"  自定义场景 {scenario.name} 完成: {result.status.value} "
+                f"({result.duration_ms:.0f}ms)"
+            )
+            return result
+        except Exception as e:
+            logger.error(f"自定义场景执行异常 {scenario.name}: {e}", exc_info=True)
+            return TestCaseResult(
+                scenario=scenario.name,
+                status=TestStatus.ERROR,
+                error_message=str(e),
+            )
+
+    @staticmethod
+    def _mock_custom_scenario(scenario: "CustomScenario") -> TestCaseResult:
+        """沙盒模式下模拟执行自定义场景"""
+        import time as _time
+        from datetime import datetime
+
+        start = datetime.now()
+        steps = []
+        for i, s in enumerate(scenario.steps):
+            _time.sleep(0.1)
+            steps.append(TestStepResult(
+                step_name=s.description or f"步骤{i+1}: {s.action.value}",
+                status=TestStatus.PASSED,
+                duration_ms=100,
+            ))
+        all_passed = all(s.status == TestStatus.PASSED for s in steps) if steps else False
+        return TestCaseResult(
+            scenario=scenario.name,
+            status=TestStatus.PASSED if all_passed else TestStatus.FAILED,
+            start_time=start,
+            end_time=datetime.now(),
+            duration_ms=100 * len(steps),
+            steps=steps,
+            selenium_logs="[MOCK] 沙盒模式模拟执行",
+        )
 
     def _analyze_failure(self, result: TestCaseResult) -> str:
         """对失败用例进行 AI 分析

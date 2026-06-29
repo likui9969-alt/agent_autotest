@@ -18,7 +18,7 @@ from backend.selenium_driver.driver import WebDriverManager
 logger = logging.getLogger("ai_rd_agent")
 
 
-def run_search_test(request: TestRunRequest) -> TestCaseResult:
+def run_search_test(request: TestRunRequest, shared_manager: WebDriverManager | None = None) -> TestCaseResult:
     """执行搜索流程自动化测试
 
     测试步骤：
@@ -30,16 +30,22 @@ def run_search_test(request: TestRunRequest) -> TestCaseResult:
 
     Args:
         request: 测试执行请求
+        shared_manager: 可选的共享浏览器实例
 
     Returns:
         包含各步骤结果的测试用例结果
     """
     start_time = datetime.now()
     steps = []
-    manager = WebDriverManager(
-        headless=request.headless,
-        timeout_seconds=request.timeout_seconds,
-    )
+    own_manager = False
+    if shared_manager is None:
+        manager = WebDriverManager(
+            headless=request.headless,
+            timeout_seconds=request.timeout_seconds,
+        )
+        own_manager = True
+    else:
+        manager = shared_manager
     selenium_logs = []
 
     try:
@@ -188,7 +194,8 @@ def run_search_test(request: TestRunRequest) -> TestCaseResult:
             steps, start_time, False, str(e), selenium_logs,
         )
     finally:
-        manager.quit()
+        if own_manager:
+            manager.quit()
 
 
 def _build_search_result(

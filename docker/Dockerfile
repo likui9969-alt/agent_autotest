@@ -16,6 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
+# 设置 Chromium 可执行路径环境变量（供 Selenium driver 检测）
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+
 # 复制依赖文件
 COPY requirements.txt .
 
@@ -27,10 +31,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 安装 Chromium 运行时依赖
+# 安装 Chromium 运行时依赖 + curl（供健康检查使用）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     chromium-driver \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 从 builder 复制已安装的 Python 包
@@ -50,9 +55,9 @@ COPY scripts/ ./scripts/
 RUN useradd -m -s /bin/bash appuser && chown -R appuser:appuser /app
 USER appuser
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+# 健康检查 — 使用实际 /health 端点（验证 LLM/Chroma/Web 服务三层连通性）
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -sf http://localhost:8000/health || exit 1
 
 # 暴露端口
 EXPOSE 8000

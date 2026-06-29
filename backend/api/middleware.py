@@ -7,6 +7,8 @@ import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from backend.config.json_formatter import request_id_var
+
 logger = logging.getLogger("ai_rd_agent")
 
 
@@ -23,10 +25,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         duration_ms = (time.time() - start_time) * 1000
 
         # 记录请求信息
+        rid = request_id_var.get()
+        extras = f" rid={rid}" if rid else ""
         logger.info(
             f"{request.method} {request.url.path} "
             f"→ {response.status_code} "
-            f"({duration_ms:.1f}ms)"
+            f"({duration_ms:.1f}ms){extras}"
         )
 
         # 在响应头中附加耗时信息

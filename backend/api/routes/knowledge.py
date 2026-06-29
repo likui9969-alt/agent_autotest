@@ -16,6 +16,8 @@ from backend.models.knowledge import (
     DocumentUploadResponse,
     KnowledgeBaseStats,
     RebuildResponse,
+    DocumentListResponse,
+    DocumentItem,
 )
 from backend.api.deps import get_rag_pipeline
 
@@ -154,3 +156,35 @@ async def rebuild_knowledge_base():
             status="failed",
             message=f"重建失败: {str(e)}",
         )
+
+
+@router.get("/docs", response_model=DocumentListResponse)
+async def list_knowledge_docs():
+    """获取知识库中已上传文档列表"""
+    settings = get_settings()
+    upload_dir = Path(settings.get_upload_dir())
+
+    docs = []
+    total_chunks = 0
+    if upload_dir.exists():
+        for f in sorted(upload_dir.iterdir()):
+            if f.is_file() and f.suffix.lower() in ALLOWED_EXTENSIONS:
+                docs.append(DocumentItem(
+                    filename=f.name,
+                    file_size_bytes=f.stat().st_size,
+                    chunk_count=0,  # 暂不统计单文档 chunk 数
+                    uploaded_at="",
+                ))
+
+    try:
+        pipeline = get_rag_pipeline()
+        stats = pipeline.stats()
+        total_chunks = stats.get("total_chunks", 0)
+    except Exception:
+        pass
+
+    return DocumentListResponse(
+        documents=docs,
+        total_documents=len(docs),
+        total_chunks=total_chunks,
+    )

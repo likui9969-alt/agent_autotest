@@ -1,8 +1,15 @@
 """
 文档加载器模块
-支持加载 txt、pdf、docx 格式的文档，统一输出为 Document 列表
+支持加载 txt、md、csv、pdf、docx 格式的文档，统一输出为 Document 列表
+
+安全措施：
+- 文件大小限制（10MB）
+- 扩展名白名单（仅 .txt/.md/.csv/.pdf/.docx）
+- 文件名净化（防止路径遍历）
+- MIME 类型验证（读取文件头）
 """
 import logging
+import re
 from pathlib import Path
 from langchain_core.documents import Document
 
@@ -12,9 +19,29 @@ logger = logging.getLogger("ai_rd_agent")
 # 支持的文件格式及其对应的加载器
 SUPPORTED_EXTENSIONS = {
     ".txt": "text",
+    ".md": "text",
+    ".csv": "text",
     ".pdf": "pdf",
     ".docx": "docx",
 }
+
+# MIME 类型签名（文件头 magic bytes）
+_MIME_SIGNATURES: dict[str, bytes] = {
+    ".pdf": b"%PDF",
+    ".docx": b"PK",  # docx 是 ZIP 格式
+}
+
+
+def sanitize_filename(filename: str) -> str:
+    """净化文件名 — 移除路径遍历和特殊字符
+
+    保留中文字符、字母、数字、连字符、下划线、点号，其余替换为下划线。
+    """
+    # 仅保留文件名部分（移除目录路径）
+    name = Path(filename).name
+    # 替换非安全字符
+    safe = re.sub(r'[^\w.一-鿿-]', '_', name)
+    return safe if safe else "unnamed_file"
 
 
 class DocumentLoader:
@@ -23,6 +50,8 @@ class DocumentLoader:
     使用示例：
         loader = DocumentLoader()
         docs = loader.load("data/docs/test_report.txt")
+        for batch in loader.load_directory_batch("data/docs/", batch_size=5):
+            print(f"处理了 {len(batch)} 个文档")
         docs = loader.load_directory("data/docs/")
     """
 
@@ -58,10 +87,25 @@ class DocumentLoader:
             supported = ", ".join(SUPPORTED_EXTENSIONS.keys())
             raise ValueError(f"不支持的文件格式 '{ext}'。支持的格式: {supported}")
 
+        # MIME 类型验证（支持的类型才读取文件头）
+        if ext in _MIME_SIGNATURES:
+            expected_header = _MIME_SIGNATURES[ext]
+            with open(path, "rb") as f:
+                actual_header = f.read(len(expected_header))
+            if not actual_header.startswith(expected_header):
+                raise ValueError(
+                    f"文件 '{path.name}' 的扩展名与内容不匹配。"
+                    f"期望 {ext} 格式，但文件头为 {actual_header[:8].hex()}"
+                )
+
         logger.info(f"加载文档: {path.name} ({self._format_size(file_size)})")
 
         if ext == ".txt":
-            return self._load_text(path)
+            return self._load_textlike(path, "txt")
+        elif ext == ".md":
+            return self._load_textlike(path, "md")
+        elif ext == ".csv":
+            return self._load_textlike(path, "csv")
         elif ext == ".pdf":
             return self._load_pdf(path)
         elif ext == ".docx":
@@ -96,19 +140,81 @@ class DocumentLoader:
         logger.info(f"目录加载完成: {len(all_docs)} 个文档片段")
         return all_docs
 
+    def load_directory_batch(self, dir_path: str, batch_size: int = 10) -> list[list[Document]]:
+        """分批加载目录下的文档（适用于流式处理）
+
+        每次产出 batch_size 个文件的文档片段列表，避免大目录下全量加载到内存。
+        配合 RAGPipeline.ingest_directory_batch 使用。
+
+        Args:
+            dir_path: 文档目录路径
+            batch_size: 每批文件数（默认 10）
+
+        Yields:
+            每批文档的 Document 列表
+        """
+        dir_path = Path(dir_path)
+
+        if not dir_path.exists():
+            logger.warning(f"文档目录不存在: {dir_path}")
+            return
+
+        # 收集所有支持的文件
+        all_files: list[Path] = []
+        for ext in SUPPORTED_EXTENSIONS:
+            all_files.extend(sorted(dir_path.glob(f"*{ext}")))
+
+        total_files = len(all_files)
+        if total_files == 0:
+            logger.info(f"目录中没有支持的文档: {dir_path}")
+            return
+
+        logger.info(f"开始分批加载目录: {total_files} 个文件 (批次大小={batch_size})")
+
+        for start in range(0, total_files, batch_size):
+            batch_files = all_files[start:start + batch_size]
+            batch_docs: list[Document] = []
+            for file_path in batch_files:
+                try:
+                    docs = self.load(str(file_path))
+                    batch_docs.extend(docs)
+                except Exception as e:
+                    logger.error(f"加载失败 {file_path.name}: {e}")
+
+            batch_num = start // batch_size + 1
+            total_batches = (total_files + batch_size - 1) // batch_size
+            logger.info(f"  批次 {batch_num}/{total_batches}: {len(batch_files)} 个文件 → {len(batch_docs)} 个文档片段")
+            yield batch_docs
+
     # ---- 各格式加载器 ----
 
-    def _load_text(self, path: Path) -> list[Document]:
-        """加载纯文本文件"""
+    def _load_textlike(self, path: Path, file_type: str) -> list[Document]:
+        """加载文本类文件（.txt / .md / .csv）"""
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
+
+        # CSV 文件特殊处理：前 100 行预览 + 结构化数据标记
+        if file_type == "csv":
+            import csv
+            import io
+            reader = csv.reader(io.StringIO(content))
+            rows = list(reader)
+            header = rows[0] if rows else []
+            preview_rows = rows[:100]
+            content = (
+                f"[CSV 数据] {path.name}\n"
+                f"列: {', '.join(header)}\n"
+                f"行数: {len(rows)}\n"
+                f"--- 前 {len(preview_rows)} 行 ---\n"
+                + "\n".join(",".join(row) for row in preview_rows)
+            )
 
         return [Document(
             page_content=content,
             metadata={
                 "source": str(path),
                 "filename": path.name,
-                "file_type": "txt",
+                "file_type": file_type,
             }
         )]
 

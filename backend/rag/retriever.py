@@ -1,8 +1,11 @@
 """
 检索器模块
 支持相似度检索（Similarity Search）和 MMR 检索（最大边际相关性）
+MMR 优先使用 numpy 加速余弦相似度计算，不可用时回退到纯 Python 实现
 """
 import logging
+import math
+from typing import Callable
 from langchain_core.documents import Document
 
 from backend.config.settings import get_settings
@@ -10,6 +13,25 @@ from backend.rag.vector_store import VectorStore
 from backend.rag.embeddings import EmbeddingGenerator
 
 logger = logging.getLogger("ai_rd_agent")
+
+# 尝试导入 numpy（MMR 加速），不可用时用纯 Python fallback
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    _HAS_NUMPY = False
+    logger.info("numpy 未安装，MMR 检索将使用纯 Python 实现")
+
+
+def _cosine_similarity_py(a: list[float], b: list[float]) -> float:
+    """纯 Python 余弦相似度计算"""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 class Retriever:
@@ -123,7 +145,85 @@ class Retriever:
         top_k: int,
         lambda_mult: float = 0.5,
     ) -> list[Document]:
-        """MMR 贪心选择算法 — 通过实际嵌入向量计算文档间多样性"""
+        """MMR 贪心选择算法
+
+        numpy 可用时使用矩阵运算加速，不可用时回退到纯 Python 实现。
+        """
+        if _HAS_NUMPY:
+            return self._mmr_select_numpy(query_embedding, candidates, top_k, lambda_mult)
+        return self._mmr_select_py(query_embedding, candidates, top_k, lambda_mult)
+
+    def _mmr_select_numpy(
+        self,
+        query_embedding: list[float],
+        candidates: list[Document],
+        top_k: int,
+        lambda_mult: float = 0.5,
+    ) -> list[Document]:
+        """MMR — numpy 向量化实现"""
+        n = len(candidates)
+        k = min(top_k, n)
+
+        # 提取所有候选的嵌入向量 → (n, d) 矩阵
+        emb_list: list[list[float]] = [
+            c.metadata.get("_embedding", query_embedding)
+            for c in candidates
+        ]
+        emb_matrix = np.array(emb_list, dtype=np.float64)
+        q_vec = np.array(query_embedding, dtype=np.float64)
+
+        # 计算余弦相似度矩阵
+        norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        emb_normed = emb_matrix / norms
+
+        q_norm = np.linalg.norm(q_vec)
+        q_normed = q_vec / q_norm if q_norm > 0 else q_vec
+
+        # 候选-查询相似度 (n,) — 相关度
+        sim_to_query = emb_normed @ q_normed
+
+        # 候选-候选相似度矩阵 (n, n) — 用于多样性计算
+        sim_matrix = emb_normed @ emb_normed.T
+
+        selected_indices: list[int] = []
+        remaining = list(range(n))
+
+        for _ in range(k):
+            if not remaining:
+                break
+
+            best_score = -1.0
+            best_idx = -1
+
+            for i in remaining:
+                # 相关性项
+                relevance = lambda_mult * sim_to_query[i]
+
+                # 多样性项
+                diversity = 0.0
+                if selected_indices:
+                    max_to_selected = max(sim_matrix[i, j] for j in selected_indices)
+                    diversity = (1 - lambda_mult) * (1.0 - max_to_selected)
+
+                score = relevance + diversity
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+
+            selected_indices.append(best_idx)
+            remaining.remove(best_idx)
+
+        return [candidates[i] for i in selected_indices]
+
+    def _mmr_select_py(
+        self,
+        query_embedding: list[float],
+        candidates: list[Document],
+        top_k: int,
+        lambda_mult: float = 0.5,
+    ) -> list[Document]:
+        """MMR — 纯 Python 实现（回退路径）"""
         import math
 
         def cosine_similarity(a: list[float], b: list[float]) -> float:

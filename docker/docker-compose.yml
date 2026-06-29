@@ -1,5 +1,5 @@
 # Docker Compose 编排文件
-# 启动命令：docker-compose -f docker/docker-compose.yml up -d
+# 启动命令：docker compose -f docker/docker-compose.yml up -d
 
 version: "3.8"
 
@@ -14,18 +14,27 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - LOG_FORMAT=json
     env_file:
       - ../.env
     volumes:
       # 挂载数据目录以持久化 Chroma 向量库和文档
       - ../data:/app/data
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      chroma:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # ==================== Streamlit 前端 ====================
   frontend:
@@ -38,19 +47,39 @@ services:
     environment:
       - STREAMLIT_SERVER_PORT=8501
       - API_BASE_URL=http://backend:8000
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       backend:
         condition: service_healthy
-    restart: unless-stopped
 
-  # ==================== Chroma 可选独立部署（如需要） ====================
-  # chroma:
-  #   image: chromadb/chroma:latest
-  #   container_name: ai_rd_agent_chroma
-  #   ports:
-  #     - "8001:8000"
-  #   volumes:
-  #     - ../data/chroma:/chroma/chroma
-  #   environment:
-  #     - IS_PERSISTENT=TRUE
-  #   restart: unless-stopped
+  # ==================== Chroma 向量数据库服务 ====================
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: ai_rd_agent_chroma
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  chroma_data:

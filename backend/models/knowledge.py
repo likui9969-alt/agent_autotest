@@ -31,3 +31,18 @@ class RebuildResponse(BaseModel):
     documents_processed: int = Field(default=0, description="处理的文档数")
     chunks_created: int = Field(default=0, description="创建的块数")
     message: str = Field(default="", description="操作结果描述")
+
+
+class DocumentItem(BaseModel):
+    """知识库中的单个文档"""
+    filename: str = Field(..., description="文件名")
+    file_size_bytes: int = Field(default=0, description="文件大小（字节）")
+    chunk_count: int = Field(default=0, description="切分后的文本块数量")
+    uploaded_at: str = Field(default="", description="上传时间")
+
+
+class DocumentListResponse(BaseModel):
+    """知识库文档列表响应"""
+    documents: list[DocumentItem] = Field(default_factory=list, description="文档列表")
+    total_documents: int = Field(default=0, description="文档总数")
+    total_chunks: int = Field(default=0, description="向量块总数")

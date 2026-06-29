@@ -44,3 +44,16 @@ Thumbs.db
 chromedriver.exe
 LICENSE.chromedriver
 THIRD_PARTY_NOTICES.chromedriver
+
+# 运行时日志（含本地路径和内网 IP，不可提交）
+*.log
+
+# 测试覆盖率缓存
+.coverage
+
+# 临时脚本
+tmp_verify_all.py
+
+# 开发辅助文件（内部评估/开发约束，非项目文档）
+CLAUDE.md
+STATUS.md

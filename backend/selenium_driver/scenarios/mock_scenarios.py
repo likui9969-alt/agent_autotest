@@ -7,6 +7,7 @@ Mock 测试场景模块 — 沙盒模式
 - 随机成功/失败（支持配置失败率）
 - 真实的错误日志格式
 """
+import os
 import time
 import random
 import logging
@@ -21,11 +22,11 @@ from backend.models.testing import (
 
 logger = logging.getLogger("ai_rd_agent")
 
-# 模拟失败率（用于演示，默认 30% 场景会失败）
-MOCK_FAILURE_RATE = 0.3
+# 模拟失败率（用于演示，可通过环境变量 MOCK_FAILURE_RATE 开启，默认 0 保证测试稳定通过）
+MOCK_FAILURE_RATE = float(os.environ.get("MOCK_FAILURE_RATE", "0.0"))
 
 
-def run_mock_login_test(request: TestRunRequest) -> TestCaseResult:
+def run_mock_login_test(request: TestRunRequest, shared_manager=None) -> TestCaseResult:
     """模拟登录流程测试（沙盒模式）
 
     模拟步骤：打开页面 → 输入用户名 → 输入密码 → 点击登录 → 验证结果
@@ -125,7 +126,7 @@ def run_mock_login_test(request: TestRunRequest) -> TestCaseResult:
     )
 
 
-def run_mock_search_test(request: TestRunRequest) -> TestCaseResult:
+def run_mock_search_test(request: TestRunRequest, shared_manager=None) -> TestCaseResult:
     """模拟搜索流程测试（沙盒模式）
 
     模拟步骤：打开首页 → 定位搜索框 → 输入关键词 → 执行搜索 → 验证结果
@@ -213,7 +214,7 @@ def run_mock_search_test(request: TestRunRequest) -> TestCaseResult:
     )
 
 
-def run_mock_order_test(request: TestRunRequest) -> TestCaseResult:
+def run_mock_order_test(request: TestRunRequest, shared_manager=None) -> TestCaseResult:
     """模拟下单流程测试（沙盒模式）
 
     模拟步骤：打开商品页 → 点击下单 → 填写表单 → 提交订单 → 验证结果

@@ -158,3 +158,55 @@ class VectorStore:
     def count(self) -> int:
         """返回当前集合中的文档块数量"""
         return self._collection.count()
+
+    # ==================== 文档管理 ====================
+
+    def delete_document(self, filename: str) -> int:
+        """按文件名删除所有关联的文档块
+
+        通过元数据中的 filename 字段匹配。由于 Chroma 的 where 过滤
+        支持 $eq 操作符，可以直接按 filename 删除。
+
+        Args:
+            filename: 文档文件名
+
+        Returns:
+            删除的块数量
+        """
+        # 先查询匹配的文件名块数
+        results = self._collection.get(
+            where={"filename": filename},
+        )
+        ids = results.get("ids", [])
+        if not ids:
+            return 0
+
+        self._collection.delete(ids=ids)
+        logger.info(f"文档已删除: {filename} ({len(ids)} 个块)")
+        return len(ids)
+
+    def get_documents(self) -> list[dict]:
+        """列出知识库中的所有文档及块数
+
+        通过聚合 Chroma 元数据中的 filename 字段来统计。
+
+        Returns:
+            [{filename, chunk_count, last_indexed}, ...]
+        """
+        # 获取所有元数据
+        results = self._collection.get(include=["metadatas"])
+        ids = results.get("ids", [])
+        metadatas = results.get("metadatas", [])
+
+        if not ids:
+            return []
+
+        # 按文件名聚合
+        file_counts: dict[str, dict] = {}
+        for meta in metadatas:
+            fname = meta.get("filename", "unknown") if meta else "unknown"
+            if fname not in file_counts:
+                file_counts[fname] = {"filename": fname, "chunk_count": 0}
+            file_counts[fname]["chunk_count"] += 1
+
+        return sorted(file_counts.values(), key=lambda x: x["filename"])

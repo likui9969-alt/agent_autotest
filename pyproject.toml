@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "agentone_test"
+version = "1.0.0"
+description = "AI-Driven 研发效能智能体"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "-p no:cacheprovider",
+]
+markers = [
+    "unit: Unit tests (fast, no external dependencies)",
+    "integration: Integration tests (may need real services)",
+    "slow: Slow tests (longer than 5 seconds)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore:::langchain_core._api.deprecation",
+]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    "*/venv/*",
+    "*/.venv/*",
+]
+parallel = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "except Exception",
+    "except:",
+]
+fail_under = 0

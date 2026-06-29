@@ -16,14 +16,78 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ==================== 全局样式优化 ====================
+st.markdown("""
+<style>
+/* 统一按钮内边距与最小高度，避免文字换行后过于拥挤 */
+.stButton > button {
+    min-height: 2.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+}
+
+/* 模板按钮组：增加按钮之间的水平/垂直间距 */
+.tpl-btn {
+    margin-bottom: 0.4rem;
+}
+
+/* 步骤编辑器表头 */
+.step-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #888;
+    margin-bottom: -0.5rem;
+    padding-top: 0.5rem;
+}
+
+/* 步骤行卡片：增加上下间距和视觉分隔 */
+.step-row {
+    padding: 0.6rem 0.4rem;
+    margin: 0.4rem 0;
+    border: 1px solid rgba(128, 128, 128, 0.2);
+    border-radius: 0.5rem;
+    background-color: rgba(128, 128, 128, 0.05);
+}
+
+/* 示例按钮组增加间距 */
+.example-btn {
+    margin-bottom: 0.4rem;
+}
+
+/* 左侧配置区各个小节增加间距 */
+.config-section {
+    margin-bottom: 1.2rem;
+}
+
+/* 模板按钮增加垂直间距 */
+.tpl-btn button {
+    margin: 0.3rem 0;
+}
+
+/* 步骤编辑器列之间增加水平间距 */
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+}
+
+/* 移动端：步骤编辑器列太窄时让输入框自动占满 */
+@media (max-width: 768px) {
+    .step-row [data-testid="stVerticalBlock"] > div {
+        width: 100% !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 # 后端 API 地址默认值：环境变量 AGENT_API_BASE > 8000
 _DEFAULT_API_BASE = os.environ.get("AGENT_API_BASE", "http://localhost:8000")
 
 
-def _probe_backend(host: str, timeout: float = 1.5) -> bool:
-    """探测指定地址的后端是否在线（调用 /health 接口）"""
+def _probe_backend(host: str, timeout: float = 1.0) -> bool:
+    """轻量探测（/health/lite，不调 LLM/Chrome）"""
     try:
-        r = requests.get(f"{host}/health", timeout=timeout)
+        r = requests.get(f"{host}/health/lite", timeout=timeout)
         return r.status_code == 200
     except Exception:
         return False
@@ -48,9 +112,22 @@ page = st.sidebar.radio(
     ["📚 知识库管理", "💬 智能问答", "📊 日志分析", "🧪 自动化测试", "🤖 Agent 执行"],
 )
 
-# API 地址配置 — 持久化到 session_state，避免重跑时被重置
+# API 地址配置 — 优先从 URL query param 读取，其次自动探测，最后使用默认值
+# 这样刷新页面后仍能保持用户手动设置的地址
+_initial_api_host = _DEFAULT_API_BASE
+
+# 1. 尝试从 URL query param 读取
+query_api_host = st.query_params.get("api_host", "")
+if query_api_host:
+    _initial_api_host = query_api_host.rstrip("/")
+# 2. 否则尝试自动探测
+elif "api_host" not in st.session_state or st.session_state.api_host == _DEFAULT_API_BASE:
+    _detected = _auto_detect_backend()
+    if _detected != _DEFAULT_API_BASE:
+        _initial_api_host = _detected
+
 if "api_host" not in st.session_state:
-    st.session_state.api_host = _DEFAULT_API_BASE
+    st.session_state.api_host = _initial_api_host
 
 # 自动探测按钮 + 手动输入
 _detect_col, _status_col = st.sidebar.columns([1, 1])
@@ -58,21 +135,38 @@ if _detect_col.button("🔍 自动探测", key="detect_btn", help="扫描 8000-8
     with st.spinner("扫描中..."):
         detected = _auto_detect_backend()
         st.session_state.api_host = detected
+        st.query_params["api_host"] = detected
         st.rerun()
 
-# 实时连接状态指示灯
-if _probe_backend(st.session_state.api_host, timeout=1.0):
-    _status_col.markdown("🟢 **已连接**")
-else:
-    _status_col.markdown("🔴 **未连接**")
-
-api_host = st.sidebar.text_input("后端API地址", value=st.session_state.api_host, key="api_host_input")
+api_host = st.sidebar.text_input(
+    "后端API地址",
+    value=st.session_state.api_host,
+    key="api_host_input",
+    help="修改后按回车生效，地址会同步到浏览器 URL 方便刷新保留",
+)
 if api_host:
-    st.session_state.api_host = api_host.rstrip("/")
+    api_host = api_host.rstrip("/")
+    st.session_state.api_host = api_host
+    # 同步到 URL query params，刷新后仍保留
+    if st.query_params.get("api_host") != api_host:
+        st.query_params["api_host"] = api_host
 API_BASE = st.session_state.api_host
+
+# 实时连接状态指示灯（在地址最终确定后探测，避免冷启动时误判）
+_is_connected = _probe_backend(API_BASE, timeout=2.0)
+_status_emoji = "🟢" if _is_connected else "🔴"
+_status_text = "已连接" if _is_connected else "未连接"
+_status_col.markdown(f"{_status_emoji} **{_status_text}**")
+
+# 显示当前连接端口，便于确认
+_api_port = API_BASE.split(":")[-1] if ":" in API_BASE else "?"
+st.sidebar.caption(f"当前端口: `{_api_port}` | 状态: {_status_text}")
 
 st.sidebar.divider()
 st.sidebar.caption("v1.0.0 | AI-Driven R&D Agent")
+
+
+# ==================== 辅助函数（已迁至页面代码之前） ====================
 
 # ==================== 页面1：知识库管理 ====================
 if page == "📚 知识库管理":
@@ -253,12 +347,38 @@ elif page == "📊 日志分析":
 
     with col1:
         st.subheader("输入日志")
-        input_method = st.radio("输入方式", ["📄 上传文件", "✏️ 粘贴内容", "📋 读取运行日志"])
+
+        # 快捷入口：一键分析最近错误
+        quick_cols = st.columns(2)
+        if quick_cols[0].button("🚨 刚才什么错误？", key="quick_recent_error"):
+            st.session_state.input_method_radio = "📋 读取运行日志"
+            st.session_state.input_method = "📋 读取运行日志"
+            st.session_state.rt_level = "ERROR"
+            st.session_state.rt_auto_level = "ERROR"
+            st.session_state.rt_auto_fetch = True
+            st.rerun()
+        if quick_cols[1].button("🧹 清空日志", key="quick_clear_log"):
+            st.session_state.rt_log_content = ""
+            st.session_state.rt_log_filename = "runtime_app.log"
+            st.session_state.analysis_result = {}
+            st.rerun()
+
+        input_method = st.radio(
+            "输入方式",
+            ["📄 上传文件", "✏️ 粘贴内容", "📋 读取运行日志"],
+            index=["📄 上传文件", "✏️ 粘贴内容", "📋 读取运行日志"].index(
+                st.session_state.get("input_method", "📋 读取运行日志")
+            ),
+            key="input_method_radio",
+        )
+        # 同步到 session_state，方便快捷按钮控制
+        st.session_state.input_method = input_method
 
         # 从 session_state 恢复日志内容（解决 Streamlit rerun 导致局部变量丢失的问题）
         if "rt_log_content" not in st.session_state:
             st.session_state.rt_log_content = ""
             st.session_state.rt_log_filename = "runtime_app.log"
+            st.session_state.rt_auto_fetched = False
 
         log_content = ""
         filename = "manual_input.log"
@@ -298,13 +418,49 @@ elif page == "📊 日志分析":
             with rt_col1:
                 rt_tail = st.slider("读取行数", 50, 2000, 200, step=50, key="rt_tail")
             with rt_col2:
+                # 快捷按钮可能设置了默认 ERROR 级别
+                _default_level = st.session_state.get("rt_auto_level", "all")
+                _level_options = ["all", "ERROR", "WARNING", "INFO"]
+                _level_index = _level_options.index(_default_level) if _default_level in _level_options else 0
                 rt_level = st.selectbox(
                     "日志级别",
-                    options=["all", "ERROR", "WARNING", "INFO"],
-                    index=0,
+                    options=_level_options,
+                    index=_level_index,
                     key="rt_level",
                     help="ERROR 只看错误；all 看全部。问'刚才什么错误'建议选 ERROR",
                 )
+
+            # 自动拉取：首次进入页面且没有日志内容时，自动拉取最近 ERROR 日志
+            _should_auto_fetch = (
+                not st.session_state.get("rt_auto_fetched", False)
+                and not st.session_state.rt_log_content.strip()
+            ) or st.session_state.get("rt_auto_fetch", False)
+
+            if _should_auto_fetch:
+                st.session_state.rt_auto_fetch = False
+                st.session_state.rt_auto_fetched = True
+                with st.spinner("正在自动读取运行日志..."):
+                    try:
+                        resp = requests.get(
+                            f"{API_BASE}/api/v1/analysis/runtime-logs",
+                            params={"tail_lines": rt_tail, "level": rt_level},
+                            timeout=30,
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            st.session_state.rt_log_content = data.get("content", "")
+                            st.session_state.rt_log_filename = "runtime_app.log"
+                            st.toast(
+                                f"已自动读取 {data.get('returned_lines', 0)} 行 "
+                                f"{data.get('level', 'all')} 日志",
+                                icon="📋",
+                            )
+                        else:
+                            st.error(f"自动读取失败: {resp.text[:300]}")
+                    except requests.ConnectionError:
+                        st.error(f"❌ 无法连接到后端 {API_BASE}")
+                    except Exception as e:
+                        st.error(f"自动读取异常: {str(e)}")
 
             if st.button("📥 拉取运行日志", key="fetch_rt_log"):
                 with st.spinner("正在读取运行日志..."):
@@ -504,7 +660,7 @@ elif page == "🧪 自动化测试":
     st.title("🧪 自动化测试")
     st.markdown("基于 Selenium 的自动化测试执行。选择场景并启动测试，查看实时结果和 AI 分析。")
 
-    col1, col2 = st.columns([1, 2])
+    col1, col2 = st.columns([2, 3])
 
     with col1:
         st.subheader("测试配置")
@@ -532,35 +688,213 @@ elif page == "🧪 自动化测试":
         headless = browser_mode == "headless"
         timeout = st.slider("超时时间（秒）", 10, 60, 30)
 
+        # ---- Selenium 环境诊断（手动触发，避免每次 rerun 都调 Chrome 子进程） ----
+        st.subheader("环境诊断")
+        if st.button("🔍 检测 Chrome / chromedriver", key="selenium_diag", help="手动触发一次环境检测"):
+            with st.spinner("检测中..."):
+                try:
+                    diag_resp = requests.get(f"{API_BASE}/system/selenium-diagnose", timeout=10)
+                    if diag_resp.status_code == 200:
+                        st.session_state.selenium_diag = diag_resp.json()
+                    else:
+                        st.session_state.selenium_diag = {"error": diag_resp.text[:200]}
+                except Exception as e:
+                    st.session_state.selenium_diag = {"error": str(e)}
+                st.rerun()
+        if diag := st.session_state.get("selenium_diag"):
+            if diag.get("ready"):
+                st.success(f"✅ 环境就绪 | Chrome v{diag.get('chrome_version')} | chromedriver v{diag.get('chromedriver_version') or '自动管理'}")
+                for tip in diag.get("tips", []):
+                    st.info(f"💡 {tip}")
+            elif diag.get("error"):
+                st.warning(f"诊断失败: {diag['error']}")
+                st.info('提示：开启下方"沙盒模式"可不依赖 Chrome 直接体验测试流程')
+            else:
+                st.warning(f"⚠️ {diag.get('message', '环境未就绪')}")
+                with st.expander("查看诊断详情"):
+                    st.json(diag)
+                st.info('提示：开启下方"沙盒模式"可不依赖 Chrome 直接体验测试流程')
+
         st.subheader("选择测试场景")
-        scenarios = st.multiselect(
-            "要执行的测试",
-            options=["login", "search", "order"],
-            default=["login", "search"],
-            format_func=lambda x: {"login": "🔑 登录流程", "search": "🔍 搜索流程", "order": "🛒 下单流程"}[x],
+
+        # 测试模式选择：预定义场景 vs 自定义场景
+        test_mode = st.radio(
+            "测试模式",
+            options=["preset", "custom"],
+            format_func=lambda x: {"preset": "📋 预定义场景（内置 Demo）", "custom": "🔧 自定义场景（任意网站）"}[x],
+            help="预定义场景：测试内置 Demo 站点\n自定义场景：可测任意网站（如百度、搜狗等）",
         )
+
+        if test_mode == "preset":
+            scenarios = st.multiselect(
+                "要执行的测试",
+                options=["login", "search", "order"],
+                default=["login", "search"],
+                format_func=lambda x: {"login": "🔑 登录流程", "search": "🔍 搜索流程", "order": "🛒 下单流程"}[x],
+            )
+            custom_scenarios_json = None
+        else:
+            # ---- 自定义场景编辑器 ----
+            st.markdown("##### 自定义测试步骤")
+            st.caption("按顺序添加测试步骤，每步选择操作类型和定位方式")
+
+            # 初始化步骤列表
+            if "custom_steps" not in st.session_state:
+                st.session_state.custom_steps = [
+                    {"action": "navigate", "by": "id", "value": "", "description": ""},
+                ]
+
+            # 预设模板按钮：缩短标签、增加间距，避免在窄栏里换行拥挤
+            tpl_cols = st.columns([1, 1, 1])
+            with tpl_cols[0]:
+                if st.button("🔎 百度模板", use_container_width=True, key="tpl_baidu", help="加载百度搜索测试步骤"):
+                    st.session_state.custom_steps = [
+                        {"action": "navigate", "by": "id", "value": "https://www.baidu.com", "description": "打开百度首页"},
+                        {"action": "input", "by": "id", "value": "kw::Selenium自动化测试", "description": "输入搜索关键词"},
+                        {"action": "click", "by": "id", "value": "su", "description": "点击搜索按钮"},
+                        {"action": "wait", "by": "id", "value": "2", "description": "等待页面加载"},
+                        {"action": "verify", "by": "css_selector", "value": "#content_left", "description": "验证搜索结果"},
+                    ]
+                    st.rerun()
+            with tpl_cols[1]:
+                if st.button("🔍 搜狗模板", use_container_width=True, key="tpl_sogou", help="加载搜狗搜索测试步骤"):
+                    st.session_state.custom_steps = [
+                        {"action": "navigate", "by": "id", "value": "https://www.sogou.com", "description": "打开搜狗首页"},
+                        {"action": "input", "by": "id", "value": "query::Selenium自动化测试", "description": "输入搜索关键词"},
+                        {"action": "click", "by": "id", "value": "stb", "description": "点击搜索按钮"},
+                        {"action": "wait", "by": "id", "value": "2", "description": "等待页面加载"},
+                        {"action": "verify", "by": "css_selector", "value": ".results", "description": "验证搜索结果"},
+                    ]
+                    st.rerun()
+            with tpl_cols[2]:
+                if st.button("🗑️ 清空", use_container_width=True, key="tpl_clear", help="清空所有自定义步骤"):
+                    st.session_state.custom_steps = [{"action": "navigate", "by": "id", "value": "", "description": ""}]
+                    st.rerun()
+
+            st.markdown("<div style='margin-top:0.6rem;'></div>", unsafe_allow_html=True)
+
+            # 表头（更宽松的列宽，避免在窄栏里换行/挤压）
+            hdr = st.columns([1.2, 1.2, 3.0, 3.0, 0.6])
+            hdr[0].markdown('<p class="step-header">操作</p>', unsafe_allow_html=True)
+            hdr[1].markdown('<p class="step-header">定位方式</p>', unsafe_allow_html=True)
+            hdr[2].markdown('<p class="step-header">值 / 输入</p>', unsafe_allow_html=True)
+            hdr[3].markdown('<p class="step-header">步骤描述</p>', unsafe_allow_html=True)
+            hdr[4].markdown('<p class="step-header">删除</p>', unsafe_allow_html=True)
+
+            action_options = ["navigate", "input", "click", "verify", "wait"]
+            action_labels = {"navigate": "🌐 打开URL", "input": "⌨️ 输入文本", "click": "🖱️ 点击", "verify": "✅ 验证元素", "wait": "⏳ 等待"}
+            by_options = ["id", "name", "xpath", "css_selector", "class_name", "tag_name", "link_text"]
+            placeholder_map = {
+                "navigate": "URL，如 https://www.baidu.com",
+                "input": "定位值::输入内容，如 kw::搜索词",
+                "click": "定位值，如 su",
+                "verify": "定位值，如 #content_left",
+                "wait": "等待秒数，如 2",
+            }
+
+            new_steps = []
+            for i, step in enumerate(st.session_state.custom_steps):
+                # 每个步骤使用带边框的容器，视觉上更清晰，避免挤在一起
+                with st.container(border=True):
+                    row_cols = st.columns([1.2, 1.2, 3.0, 3.0, 0.6])
+
+                    with row_cols[0]:
+                        action = st.selectbox(
+                            "操作", action_options,
+                            index=action_options.index(step.get("action", "navigate")),
+                            format_func=lambda x: action_labels[x],
+                            key=f"step_action_{i}",
+                            label_visibility="collapsed",
+                        )
+                    with row_cols[1]:
+                        if action in ("navigate", "wait"):
+                            by_val = st.selectbox("定位", ["—"], key=f"step_by_{i}", disabled=True, label_visibility="collapsed")
+                        else:
+                            by_val = st.selectbox(
+                                "定位", by_options,
+                                index=by_options.index(step.get("by", "id")),
+                                key=f"step_by_{i}",
+                                label_visibility="collapsed",
+                            )
+                    with row_cols[2]:
+                        val = st.text_input(
+                            "值", value=step.get("value", ""),
+                            placeholder=placeholder_map.get(action, ""),
+                            key=f"step_value_{i}",
+                            label_visibility="collapsed",
+                        )
+                    with row_cols[3]:
+                        desc = st.text_input(
+                            "描述", value=step.get("description", ""),
+                            placeholder=f"步骤 {i+1} 描述",
+                            key=f"step_desc_{i}",
+                            label_visibility="collapsed",
+                        )
+                    with row_cols[4]:
+                        if len(st.session_state.custom_steps) > 1:
+                            st.markdown("<div style='height:0.35rem;'></div>", unsafe_allow_html=True)
+                            if st.button("✕", key=f"step_del_{i}", help="删除此步骤", type="tertiary"):
+                                st.session_state.custom_steps.pop(i)
+                                st.rerun()
+                        else:
+                            st.markdown("<div style='height:1.6rem;'></div>", unsafe_allow_html=True)
+
+                new_steps.append({
+                    "action": action,
+                    "by": by_val if by_val != "—" else "id",
+                    "value": val,
+                    "description": desc,
+                })
+
+            add_col, count_col = st.columns([1, 4])
+            with add_col:
+                if st.button("➕ 添加步骤", use_container_width=True, key="add_step"):
+                    st.session_state.custom_steps.append({"action": "navigate", "by": "id", "value": "", "description": ""})
+                    st.rerun()
+            with count_col:
+                if new_steps:
+                    st.caption(f"共 {len(new_steps)} 个步骤")
+
+            st.session_state.custom_steps = new_steps
+            scenarios = []
+            custom_scenarios_json = new_steps
+
+            # 显示步骤预览
+            if new_steps:
+                with st.expander("查看步骤 JSON"):
+                    st.json(new_steps)
 
         auto_analyze = st.checkbox("失败时自动AI分析", value=True)
         sandbox = st.checkbox(
             "🧪 沙盒模式（无需Chrome，模拟执行）",
-            value=False,
-            help="开启后使用模拟的 Selenium 执行。关闭则驱动真实 Chrome 浏览器（默认关闭，使用真实浏览器）",
+            value=True,
+            help="开启后使用模拟的 Selenium 执行（推荐）。关闭则驱动真实 Chrome 浏览器。",
         )
 
-        if st.button("▶ 开始测试", type="primary", disabled=not scenarios):
+        # 按钮禁用条件：预定义模式需要选场景，自定义模式需要有步骤
+        btn_disabled = (test_mode == "preset" and not scenarios) or (test_mode == "custom" and not custom_scenarios_json)
+
+        if st.button("▶ 开始测试", type="primary", disabled=btn_disabled):
             mode_label = "沙盒模式" if sandbox else ("无头浏览器" if headless else "可见浏览器")
             with st.spinner(f"测试执行中...({mode_label})"):
                 try:
+                    payload = {
+                        "scenarios": scenarios if test_mode == "preset" else ["custom"],
+                        "base_url": base_url,
+                        "headless": headless,
+                        "timeout_seconds": timeout,
+                        "auto_analyze": auto_analyze,
+                        "sandbox": sandbox,
+                    }
+                    if test_mode == "custom" and custom_scenarios_json:
+                        payload["custom_scenarios"] = [{
+                            "name": "自定义场景",
+                            "steps": custom_scenarios_json,
+                        }]
+
                     resp = requests.post(
                         f"{API_BASE}/api/v1/testing/run",
-                        json={
-                            "scenarios": scenarios,
-                            "base_url": base_url,
-                            "headless": headless,
-                            "timeout_seconds": timeout,
-                            "auto_analyze": auto_analyze,
-                            "sandbox": sandbox,
-                        },
+                        json=payload,
                         timeout=600,
                     )
                     if resp.status_code == 200:
@@ -637,7 +971,7 @@ elif page == "🤖 Agent 执行":
     输入任务描述，AI Agent 自动：
     1. 分析意图 → 2. 选择工具 → 3. 执行工具 → 4. 观察结果 → 5. 继续推理 → 6. 生成最终回答
 
-    可用工具：`search_knowledge_base` | `parse_log_content` | `execute_test_scenario` | `create_jira_issue_tool` | `get_runtime_logs` | `get_system_status`
+    可用工具：`search_knowledge_base` | `parse_log_content` | `execute_test_scenario` | `run_real_test_scenario` | `create_jira_issue_tool` | `get_runtime_logs` | `get_system_status` | `read_code_file` | `list_directory` | `run_shell_command` | `check_api_health` | `get_recent_test_logs` | `explore_website` | `run_custom_test`
     """)
 
     col1, col2 = st.columns([1, 1])
@@ -645,27 +979,52 @@ elif page == "🤖 Agent 执行":
     with col1:
         st.subheader("任务描述")
 
+        # 初始化任务文本，避免 session state 异常导致读取到页面其他内容
+        if "agent_task" not in st.session_state:
+            st.session_state.agent_task = ""
+
         # 快捷示例 — 一键填充常见任务
         st.caption("💡 点击示例快速填充：")
         ex_cols = st.columns(3)
         examples = {
-            "刚才什么错误": "刚才后端运行出了什么错误？请读取运行日志并分析原因和解决方案。",
-            "系统状态检查": "检查一下系统各组件状态是否正常，LLM、向量库、Chrome 是否可用。",
-            "跑测试并分析": "执行登录和搜索场景的自动化测试，如果失败请分析原因并给出修复建议。",
+            "🚨 刚才什么错误": {"text": "刚才后端运行出了什么错误？请读取运行日志并分析原因和解决方案。", "help": "读取最近 ERROR 级别运行日志并分析"},
+            "🔍 系统状态检查": {"text": "检查一下系统各组件状态是否正常，LLM、向量库、Chrome 是否可用。", "help": "调用系统状态诊断工具"},
+            "🧪 跑测试并分析": {"text": "执行登录和搜索场景的自动化测试，如果失败请分析原因并给出修复建议。", "help": "执行内置 Demo 测试并分析结果"},
         }
-        for c, (label, text) in zip(ex_cols, examples.items()):
-            if c.button(label, key=f"ex_{label}"):
-                st.session_state.agent_task = text
+        for c, (label, info) in zip(ex_cols, examples.items()):
+            if c.button(label, key=f"ex_{label}", help=info["help"], use_container_width=True):
+                st.session_state.agent_task_input = info["text"]
+                st.rerun()
+
+        st.markdown("<div style='margin-top:0.4rem;'></div>", unsafe_allow_html=True)
 
         task = st.text_area(
             "用自然语言描述你想让 Agent 完成的任务",
+            value=st.session_state.agent_task,
             height=120,
             placeholder="例如：\n"
                        "• 刚才什么错误？读取运行日志分析一下\n"
                        "• 分析这个错误：TimeoutException: Page load timeout after 30s\n"
                        "• 执行登录测试，分析失败原因，确认是 bug 就创建 JIRA 缺陷单",
-            key="agent_task",
+            key="agent_task_input",
         )
+        # 同步回 session_state，让示例按钮可以正确填充
+        st.session_state.agent_task = task
+
+        # 清理任务文本：去除首尾空白、常见误输入的 UI 标签
+        task_clean = task.strip()
+        ui_noise = [
+            "输入任务描述，点击执行按钮启动 Agent",
+            "什么是 ReAct 循环？",
+            "Agent 不会一次性给出答案",
+            "ReAct 最大迭代次数",
+            "任务类型（可选）",
+            "🤖 自动识别",
+            "执行结果",
+        ]
+        for noise in ui_noise:
+            if noise in task_clean:
+                task_clean = task_clean.split(noise)[0].strip()
 
         max_iters = st.slider("ReAct 最大迭代次数", 1, 10, 5, key="agent_iters",
                               help="Agent 最多进行多少轮 思考→工具→观察 循环")
@@ -686,7 +1045,11 @@ elif page == "🤖 Agent 执行":
         use_stream = st.checkbox("流式输出（SSE）", value=True, key="agent_stream",
                                  help="实时展示 Agent 的推理过程和工具调用")
 
-        if st.button("🚀 执行 Agent 任务", type="primary", disabled=not task.strip(), key="agent_exec_btn"):
+        # 如果任务为空，给出明确的视觉提示
+        if not task_clean:
+            st.warning("⚠️ 请先输入任务描述，或点击上方示例按钮")
+
+        if st.button("🚀 执行 Agent 任务", type="primary", disabled=not task_clean, key="agent_exec_btn"):
             # 清空上一次的结果
             st.session_state.agent_events = []
             st.session_state.pop("agent_result", None)
@@ -699,7 +1062,7 @@ elif page == "🤖 Agent 执行":
                     try:
                         resp = requests.post(
                             f"{API_BASE}/api/v1/agent/execute/stream",
-                            json={"task": task, "max_iterations": max_iters, "task_type": task_type},
+                            json={"task": task_clean, "max_iterations": max_iters, "task_type": task_type},
                             stream=True,
                             timeout=300,
                         )
@@ -747,7 +1110,7 @@ elif page == "🤖 Agent 执行":
                     try:
                         resp = requests.post(
                             f"{API_BASE}/api/v1/agent/execute",
-                            json={"task": task, "max_iterations": max_iters, "task_type": task_type},
+                            json={"task": task_clean, "max_iterations": max_iters, "task_type": task_type},
                             timeout=300,
                         )
                         if resp.status_code == 200:
@@ -812,13 +1175,15 @@ elif page == "🤖 Agent 执行":
             with st.expander("🧠 推理过程时间线", expanded=True):
                 _render_agent_timeline(st.session_state.agent_events)
         else:
-            st.info("👈 输入任务描述，点击执行按钮启动 Agent" + "\n\n" +
-                    "**什么是 ReAct 循环？**\n\n" +
-                    "Agent 不会一次性给出答案，而是：\n"
+            st.info("👈 输入任务描述，点击执行按钮启动 Agent")
+            with st.expander("💡 什么是 ReAct 循环？"):
+                st.markdown(
+                    "Agent 不会一次性给出答案，而是：\n\n"
                     "1. 🧠 **Think** — 分析问题，决定要用什么工具\n"
                     "2. 🔧 **Act** — 调用工具（搜知识库/跑测试/读运行日志/查系统状态/创缺陷单）\n"
                     "3. 👁 **Observe** — 查看工具返回的结果\n"
-                    "4. 🔄 重复以上步骤，直到获得足够信息给出最终答案")
+                    "4. 🔄 重复以上步骤，直到获得足够信息给出最终答案"
+                )
 
 
 # ==================== 辅助函数：渲染 Agent 推理时间线 ====================
