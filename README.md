@@ -76,7 +76,7 @@
 
 ```bash
 git clone https://github.com/likui9969-alt/agent_autotest.git
-cd agent_one_test
+cd agent_autotest
 
 python -m venv .venv
 # Windows
@@ -196,18 +196,6 @@ agentone_test/
 | GET | `/api/v1/test-cases/export/csv` | 导出 CSV |
 | POST | `/api/v1/agent/run` | LangGraph Agent 执行 |
 | POST | `/api/v1/jira/create` | 创建 JIRA 缺陷单 |
-
----
-
-## 简历描述
-
-> **AI 研发效能智能体系统** | 独立开发 | 2025.06
->
-> - 设计 LangGraph Multi-Agent 架构，Supervisor 调度日志分析、循环检测、测试生成、JIRA 创建四个 Agent 协作完成端到端故障处理
-> - 实现 LLM 多 Provider 工厂（DashScope / OpenAI / Ollama），支持指数退避重试和熔断保护，可配置回退链保证服务可用性
-> - 基于 RAG（LangChain + Chroma）构建测试知识库，支持文档上传、向量化检索、增量索引，用于历史故障相似案例匹配
-> - 使用 FastAPI + Streamlit 前后端分离架构，7 个独立页面覆盖知识库管理、智能问答、日志分析、自动化测试、测试用例管理、Agent 执行、对话
-> - Selenium WebDriver 封装多场景自动化测试，AI 失败分析；SQLite 持久化报告和测试用例；Docker 容器化部署
 
 ---
 
