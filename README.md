@@ -166,7 +166,7 @@ agentone_test/
 │   ├── app.py                  # Streamlit 入口
 │   ├── pages/                  # 7 个页面模块
 │   └── utils/                  # API 客户端 / 状态管理 / 样式
-├── data/                       # 运行时数据（已 gitignore）
+├── data/                       # 运行时数据
 ├── scripts/                    # 辅助脚本
 ├── docker/                     # Dockerfile + Compose
 ├── tests/                      # 测试
@@ -222,24 +222,6 @@ agentone_test/
 - **部署**: Docker / Docker Compose
 
 ---
-
-## 提交前注意
-
-`.gitignore` 已排除以下敏感/运行时文件：
-
-```
-.env                # 含 API Key，不可提交
-chromedriver.exe    # 浏览器驱动二进制
-.mcp.json           # 本地 MCP 配置
-.claude/            # Claude 本地设置
-data/logs/*         # 运行时日志
-data/chroma/*       # Chroma 向量数据库
-data/screenshots/   # 测试截图
-data/reports.db     # 运行时数据库
-data/backups/       # Chroma 备份
-```
-
-新增敏感文件时记得补充 `.gitignore`。
 
 ## License
 
