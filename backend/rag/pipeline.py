@@ -13,6 +13,7 @@ from backend.rag.splitter import TextSplitter
 from backend.rag.embeddings import EmbeddingGenerator
 from backend.rag.vector_store import VectorStore
 from backend.rag.retriever import Retriever
+from backend.rag.reranker import Reranker
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
 from backend.models.rag import RAGQueryRequest, RAGQueryResponse, SourceCitation
@@ -52,12 +53,13 @@ class RAGPipeline:
         """初始化管线各组件（共享 LLMClient 实例以减少资源占用）"""
         # 优先使用注入的 LLM 客户端，否则从全局单例获取
         self.llm_client = llm_client or get_llm_client()
-        # 各组件初始化，EmbeddingGenerator 使用共享的 LLMClient
+        # 各组件初始化，EmbeddingGenerator / Reranker 使用共享的 LLMClient
         self.loader = DocumentLoader()
         self.splitter = TextSplitter()
         self.embedder = EmbeddingGenerator(llm_client=self.llm_client)
         self.vector_store = VectorStore()
         self.retriever = Retriever(self.vector_store, self.embedder)
+        self.reranker = Reranker(llm_client=self.llm_client)
 
         logger.info("RAG 管线已初始化")
 
@@ -236,8 +238,49 @@ class RAGPipeline:
 
     # ==================== RAG 查询 ====================
 
+    def _retrieve_with_rerank(
+        self, request: RAGQueryRequest
+    ) -> tuple[list, bool]:
+        """两阶段检索：向量召回 → LLM 重排
+
+        阶段 1（召回）：向量检索获取 max(top_k, RERANK_CANDIDATE_K) 个候选，
+        保证高召回率（向量相似度对语义相近但措辞不同的文档排序不精确）。
+        阶段 2（重排）：LLM 理解查询意图后按相关性重排，取前 top_k。
+        关闭 RERANK_ENABLED 时退化为单阶段检索（原行为）。
+
+        Returns:
+            (检索结果列表, 是否经过重排)
+        """
+        settings = get_settings()
+        use_rerank = settings.RERANK_ENABLED
+        recall_k = (
+            max(request.top_k, settings.RERANK_CANDIDATE_K) if use_rerank else request.top_k
+        )
+
+        if request.search_type == "mmr":
+            retrieved = self.retriever.mmr_search(
+                query=request.question,
+                top_k=recall_k,
+            )
+        else:
+            retrieved = self.retriever.similarity_search(
+                query=request.question,
+                top_k=recall_k,
+            )
+
+        # 候选数超过用户要求数时触发重排（不足则无需重排）
+        if use_rerank and len(retrieved) > request.top_k:
+            retrieved = self.reranker.rerank(
+                query=request.question,
+                documents=retrieved,
+                top_n=request.top_k,
+            )
+            return retrieved, True
+
+        return retrieved, False
+
     def query(self, request: RAGQueryRequest) -> RAGQueryResponse:
-        """执行 RAG 查询：检索 + 生成
+        """执行 RAG 查询：检索（+ 重排）+ 生成
 
         Args:
             request: 查询请求（问题 + 检索参数）
@@ -247,17 +290,8 @@ class RAGPipeline:
         """
         start_time = time.time()
 
-        # 1. 检索相关文档块
-        if request.search_type == "mmr":
-            retrieved = self.retriever.mmr_search(
-                query=request.question,
-                top_k=request.top_k,
-            )
-        else:
-            retrieved = self.retriever.similarity_search(
-                query=request.question,
-                top_k=request.top_k,
-            )
+        # 1. 两阶段检索：召回 + 可选重排
+        retrieved, rerank_used = self._retrieve_with_rerank(request)
 
         # 2. 构建上下文
         context_parts = []
@@ -300,6 +334,7 @@ class RAGPipeline:
             answer=answer,
             sources=sources,
             retrieved_count=len(retrieved),
+            rerank_used=rerank_used,
             response_time_ms=round(elapsed_ms, 1),
         )
 

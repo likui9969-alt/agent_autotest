@@ -46,5 +46,9 @@ class RAGQueryResponse(BaseModel):
     answer: str = Field(..., description="RAG 生成的回答")
     sources: list[SourceCitation] = Field(default_factory=list, description="引用来源列表")
     retrieved_count: int = Field(default=0, description="实际检索到的文档数")
+    rerank_used: bool = Field(
+        default=False,
+        description="检索结果是否经过 LLM 重排序（召回-重排两阶段）",
+    )
     response_time_ms: float = Field(default=0, description="响应耗时（毫秒）")
     answered_at: datetime = Field(default_factory=datetime.now, description="回答时间")

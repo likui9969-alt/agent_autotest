@@ -198,13 +198,19 @@ def render() -> None:
                         st.session_state.agent_result = stream_result
                         st.rerun()
                     elif st.session_state.agent_events:
-                        # 流式有事件但无 final，仍展示已收集的推理过程
-                        st.warning("流式未返回 final 事件，但已记录推理过程（见右侧）")
+                        # 流式有事件但无 final：Agent 已真实执行过，
+                        # 禁止回退非流式重跑（否则 Agent 执行两遍、token 翻倍）
+                        st.warning(
+                            "流式未返回 final 事件，已保留推理过程（见右侧）。"
+                            "如需重试请再次点击「执行」"
+                        )
                     else:
-                        st.info("流式未返回结果，切换到普通模式...")
+                        # 连接彻底失败且零事件：Agent 未执行，回退非流式是安全的
+                        st.info("流式连接失败，切换到普通模式...")
 
-                # 非流式模式（流式未启用或流式未成功时执行）
-                if not use_stream or "agent_result" not in st.session_state:
+                # 非流式模式：仅流式未启用，或流式连接彻底失败（零事件）时执行。
+                # 关键：收到过流式事件说明 Agent 已执行，此时不再回退，防止重复执行
+                if not use_stream or not st.session_state.get("agent_events"):
                     success, data = api_post(
                         "api/v1/agent/execute",
                         json={
@@ -311,6 +317,7 @@ def _render_agent_timeline(events: list[dict]):
     - start       : 任务开始
     - node_start  : 进入图节点（supervisor / rag_node / execute_tools ...）
     - tool_call   : Agent 调用工具
+    - tool_result : 工具执行结果（含单工具耗时与输出摘要）
     - node_end    : 节点执行完毕
     - final       : 最终回答
     - error       : 错误
@@ -360,6 +367,19 @@ def _render_agent_timeline(events: list[dict]):
             args = data.get("args", {})
             args_str = ", ".join(f"{k}={v}" for k, v in args.items()) if args else "(无参数)"
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ 🔧 调用工具 **`{tool}`**({args_str})")
+
+        elif etype == "tool_result":
+            tool = data.get("tool", "unknown")
+            duration = data.get("duration_ms", 0)
+            ok = data.get("success", True)
+            output = str(data.get("output", ""))
+            status_icon = "✅" if ok else "⚠️"
+            # 结果摘要（一行，超过 120 字符截断）
+            summary = output.replace("\n", " ")[:120] + ("..." if len(output) > 120 else "")
+            st.markdown(
+                f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↳ {status_icon} "
+                f"**`{tool}`** 返回 ({duration:.0f}ms): `{summary}`"
+            )
 
         elif etype == "node_end":
             nxt = data.get("next_action", "")

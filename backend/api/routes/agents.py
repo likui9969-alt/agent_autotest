@@ -204,6 +204,8 @@ async def execute_agent(request: AgentExecuteRequest):
         tool_calls_made=result["tool_calls_made"],
         iterations=result["iterations"],
         execution_time_ms=round(elapsed, 1),
+        token_usage=result.get("token_usage", []),
+        total_tokens=result.get("total_tokens", 0),
         error=result["error"],
     )
 
@@ -331,6 +333,19 @@ async def execute_agent_stream(request: AgentExecuteRequest):
                             yield _sse_event("tool_call", {
                                 "tool": tc.get("name", "unknown"),
                                 "args": {k: str(v)[:100] for k, v in tc.get("args", {}).items()},
+                            })
+
+                    # 记录工具执行结果（来自 execute_tools 节点，含单工具耗时）
+                    tool_results = state_update.get("tool_results", [])
+                    if tool_results:
+                        for tr in tool_results:
+                            output = str(tr.get("output", ""))
+                            yield _sse_event("tool_result", {
+                                "tool": tr.get("tool_name", "unknown"),
+                                "duration_ms": tr.get("duration_ms", 0),
+                                "success": not output.startswith(("错误", "工具执行失败")),
+                                # 输出摘要截断，防止 SSE 事件过大
+                                "output": output[:300],
                             })
 
                     # 记录最终输出

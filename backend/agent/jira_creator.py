@@ -133,39 +133,131 @@ class JiraCreator:
                 "message": f"连接失败: {str(e)}",
             }
 
+    # 类级缓存：项目可用的 issue type 名称（避免每次建单都查 createmeta）
+    _issue_type_cache: dict[str, str] = {}
+
+    # issue type 候选优先级（兼容中英文模板的 team-managed / company-managed 项目）
+    _ISSUE_TYPE_CANDIDATES = ("Bug", "故障", "任务", "Task", "Story", "故事")
+
+    def _resolve_issue_type(self, client: "httpx.Client", jira_url: str, auth: tuple) -> str:
+        """解析项目可用的缺陷类 issue type 名称
+
+        team-managed（next-gen）项目可能没有 "Bug" 类型（如中文模板只有
+        任务/故事/长篇故事），写死 "Bug" 会导致 400 错误。
+        通过 createmeta 动态探测（需认证，未认证返回 404），
+        按候选优先级选择，结果进程内缓存。
+        """
+        cached = JiraCreator._issue_type_cache.get(self.settings.JIRA_PROJECT_KEY)
+        if cached:
+            return cached
+
+        default_type = "Bug"
+        meta_url = (
+            f"{jira_url}/rest/api/2/issue/createmeta/"
+            f"{self.settings.JIRA_PROJECT_KEY}/issuetypes"
+        )
+        # 查询最多尝试 2 次（抵御偶发 SSL 握手超时/网络抖动）
+        for attempt in range(2):
+            try:
+                resp = client.get(
+                    meta_url, auth=auth, headers={"Content-Type": "application/json"}
+                )
+                if resp.status_code == 200:
+                    names = [t.get("name", "") for t in resp.json().get("issueTypes", [])]
+                    for candidate in self._ISSUE_TYPE_CANDIDATES:
+                        if candidate in names:
+                            JiraCreator._issue_type_cache[self.settings.JIRA_PROJECT_KEY] = candidate
+                            logger.info(f"JIRA issue type 解析: 使用 '{candidate}'（项目可用: {names}）")
+                            return candidate
+                    # 无候选命中时取第一个非 subtask 类型兜底
+                    non_subtask = [
+                        t.get("name", "") for t in resp.json().get("issueTypes", [])
+                        if not t.get("subtask", False)
+                    ]
+                    if non_subtask:
+                        JiraCreator._issue_type_cache[self.settings.JIRA_PROJECT_KEY] = non_subtask[0]
+                        return non_subtask[0]
+                    return default_type
+                logger.warning(
+                    f"JIRA createmeta 返回 {resp.status_code}（尝试 {attempt + 1}/2）"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"JIRA createmeta 查询失败（尝试 {attempt + 1}/2）: {e}"
+                )
+        return default_type
+
     def _call_jira_api(self, request: JiraCreateRequest) -> JiraCreateResponse:
-        """调用 JIRA REST API 创建 Issue"""
+        """调用 JIRA REST API 创建 Issue
+
+        兼容性处理：
+        1. issue type 动态解析（team-managed 项目可能没有 Bug 类型）
+        2. priority/labels 字段被项目拒绝时自动剔除重试（team-managed
+           项目可能未启用这些字段，400 errors 会指明字段名）
+        """
         import httpx
 
         jira_url = self.settings.JIRA_URL.rstrip("/")
         api_url = f"{jira_url}/rest/api/2/issue"
 
-        # 构建 JIRA API 请求体
-        issue_data = {
-            "fields": {
-                "project": {"key": self.settings.JIRA_PROJECT_KEY},
-                "summary": request.title,
-                "description": request.description,
-                "issuetype": {"name": "Bug"},
-                "priority": {"name": request.priority or "Medium"},
-                "labels": request.labels or ["ai-generated", "automation"],
-            }
+        # 必填字段
+        base_fields: dict = {
+            "project": {"key": self.settings.JIRA_PROJECT_KEY},
+            "summary": request.title,
+            "description": request.description,
         }
 
-        # 如果有指派人
+        # 可选字段（team-managed 项目可能未启用，失败时剔除重试）
+        optional_fields: dict = {
+            "priority": {"name": request.priority or "Medium"},
+            "labels": request.labels or ["ai-generated", "automation"],
+        }
+
+        # 如果有指派人（company-managed 项目用 name，team-managed 需要 accountId，
+        # 此处保留原行为，指派失败会被下方容错逻辑剔除）
         if request.assignee:
-            issue_data["fields"]["assignee"] = {"name": request.assignee}
+            optional_fields["assignee"] = {"name": request.assignee}
 
         # HTTP Basic Auth
         auth = (self.settings.JIRA_USERNAME, self.settings.JIRA_API_TOKEN)
 
-        with httpx.Client(timeout=30) as client:
+        # trust_env=False：不走系统代理环境变量，与 check_connection 行为保持一致
+        with httpx.Client(timeout=30, trust_env=False) as client:
+            # 动态解析 issue type（写入必填字段）
+            issue_type = self._resolve_issue_type(client, jira_url, auth)
+            base_fields["issuetype"] = {"name": issue_type}
+
+            # 第一次尝试：带全部字段
+            fields = {**base_fields, **optional_fields}
             response = client.post(
                 api_url,
-                json=issue_data,
+                json={"fields": fields},
                 auth=auth,
                 headers={"Content-Type": "application/json"},
             )
+
+            # 400 且指明字段错误：剔除被拒的可选字段后重试一次
+            if response.status_code == 400:
+                try:
+                    errors = response.json().get("errors", {})
+                except Exception:
+                    errors = {}
+                rejected_optional = [k for k in optional_fields if k in errors]
+                # issuetype 被拒说明动态解析也失败，直接报错（不能剔除必填字段）
+                if rejected_optional and "issuetype" not in errors:
+                    logger.warning(
+                        f"JIRA 项目拒绝字段 {rejected_optional}（可能未启用），剔除后重试"
+                    )
+                    retry_fields = {**base_fields, **{
+                        k: v for k, v in optional_fields.items()
+                        if k not in rejected_optional
+                    }}
+                    response = client.post(
+                        api_url,
+                        json={"fields": retry_fields},
+                        auth=auth,
+                        headers={"Content-Type": "application/json"},
+                    )
 
         if response.status_code in (200, 201):
             data = response.json()

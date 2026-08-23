@@ -8,7 +8,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings
 
 
-# 项目根目录 — 从当前文件向上查找 3 级 (config -> backend -> agentone_test)
+# 项目根目录 — 从当前文件向上查找 3 级 (config -> backend -> 仓库根目录)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 200               # 文档切分块重叠量
     RETRIEVER_TOP_K: int = 5               # 检索返回的最相关文档数
     CHROMA_PERSIST_DIR: str = ""           # Chroma 持久化目录（留空则自动设为 data/chroma）
+
+    # ==================== RAG 重排序（Rerank）配置 ====================
+    RERANK_ENABLED: bool = True
+    # 是否启用 LLM 重排序（召回-重排两阶段检索的第二阶段）。
+    # 开启后召回 RERANK_CANDIDATE_K 个候选，LLM 按查询相关性重排，取前 top_k。
+    # 关闭则退化为单阶段向量检索（原行为）。
+    RERANK_CANDIDATE_K: int = 10
+    # 召回阶段的候选文档数（实际取 max(top_k, 此值)）。候选越多重排质量越高，
+    # 但 prompt 更长、延迟增加。经验值 10。
 
     # ==================== JIRA 配置（可选） ====================
     JIRA_URL: str = ""                     # JIRA 实例地址

@@ -33,7 +33,9 @@ class AgentState(TypedDict):
     # 最大允许的 think→act→observe 循环次数，默认 5
 
     # ---- 工具调用追踪 ----
-    tool_calls: Annotated[list[dict[str, Any]], operator.add]
+    # 注意：必须是替换语义（不能用 operator.add）。累积语义会导致
+    # execute_tools_node 每轮重放全部历史工具调用（如重复打开浏览器）。
+    tool_calls: list[dict[str, Any]]
     # 本轮待执行的工具调用 [{name, args, id}, ...]
     tool_results: Annotated[list[dict[str, Any]], operator.add]
     # 工具执行结果 [{tool_name, output, error}, ...]

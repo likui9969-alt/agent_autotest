@@ -16,6 +16,7 @@ LangGraph Supervisor — 多 Agent 协作状态机
                   └── NO  → END
 """
 import logging
+import time
 from typing import Literal
 
 from langgraph.graph import StateGraph, END
@@ -300,6 +301,7 @@ def execute_tools_node(state: AgentState) -> dict:
         tool_name = tc.get("name", "")
         tool_args = tc.get("args", {})
         tool_id = tc.get("id", "")
+        duration_ms = 0.0
 
         # 查找工具
         from backend.agent.tools import TOOLS_BY_NAME
@@ -312,10 +314,13 @@ def execute_tools_node(state: AgentState) -> dict:
             try:
                 # 执行工具
                 logger.info(f"[ToolExecutor] 调用 {tool_name}({list(tool_args.keys())})")
+                started = time.time()
                 result = tool_fn.invoke(tool_args)
+                duration_ms = (time.time() - started) * 1000
                 output = str(result)
-                logger.info(f"[ToolExecutor] {tool_name} 完成 ({len(output)} 字符)")
+                logger.info(f"[ToolExecutor] {tool_name} 完成 ({len(output)} 字符, {duration_ms:.0f}ms)")
             except Exception as e:
+                duration_ms = (time.time() - started) * 1000
                 output = f"工具执行失败: {str(e)}"
                 logger.error(f"[ToolExecutor] {tool_name} 失败: {e}")
 
@@ -323,6 +328,7 @@ def execute_tools_node(state: AgentState) -> dict:
             "tool_call_id": tool_id,
             "tool_name": tool_name,
             "output": output[:4000],  # 限制长度
+            "duration_ms": round(duration_ms, 1),
         })
 
     # 构建观察消息
