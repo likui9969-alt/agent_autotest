@@ -16,7 +16,9 @@
 
 > 项目功能解说与端到端运行演示（登录/搜索自动化测试 + AI 失败分析 + JIRA 缺陷单创建）。
 
-<video controls src="docs/demo.mp4" width="720" style="max-width:100%;"></video>
+![项目演示视频](docs/demo.mp4)
+
+*在线播放失败时可 [下载视频观看](https://github.com/likui9969-alt/agent_autotest/raw/main/docs/demo.mp4)*
 
 ### 核心能力
 
