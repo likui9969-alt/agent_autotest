@@ -2,6 +2,10 @@
 .git
 .gitignore
 
+# 敏感文件（凭证 / 内部审查文档，禁止进入镜像构建上下文）
+.env
+反馈文件/
+
 # Python
 __pycache__
 *.pyc

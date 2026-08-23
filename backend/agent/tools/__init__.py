@@ -13,6 +13,53 @@ from langchain_core.tools import tool
 logger = logging.getLogger("ai_rd_agent")
 
 
+# ==================== SSRF 防护（模块级公共校验） ====================
+
+def _check_url_safety(target_url: str, allow_loopback: bool = False) -> tuple[bool, str]:
+    """校验 URL 是否安全（SSRF 防护，拒绝内网/回环/链路本地/保留地址）
+
+    供 check_api_health / explore_website / run_custom_test /
+    run_real_test_scenario 等接受外部 URL 的工具统一调用。
+
+    Args:
+        target_url: 待校验的完整 URL
+        allow_loopback: 是否放行回环地址（127.x）。测试本地被测服务的
+            工具（如 run_real_test_scenario）需要传 True。
+
+    Returns:
+        (是否安全, 失败原因)
+    """
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+
+    try:
+        parsed = urlparse(target_url)
+        if parsed.scheme not in ("http", "https"):
+            return False, f"协议 '{parsed.scheme}' 不允许，仅支持 http/https"
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "URL 缺少 hostname"
+        # 解析域名到 IP（防 DNS 绑定）
+        try:
+            ip = socket.gethostbyname(hostname)
+        except socket.gaierror:
+            return False, f"无法解析域名 '{hostname}'"
+        ip_obj = ipaddress.ip_address(ip)
+        # 拒绝私有/链路本地/保留地址（云元数据 169.254.169.254 属于链路本地）
+        if ip_obj.is_private and not (allow_loopback and ip_obj.is_loopback):
+            return False, f"目标 IP '{ip}' 为私有地址，已拒绝"
+        if ip_obj.is_loopback and not allow_loopback:
+            return False, f"目标 IP '{ip}' 为回环地址，已拒绝"
+        if ip_obj.is_link_local:
+            return False, f"目标 IP '{ip}' 为链路本地地址，已拒绝"
+        if ip_obj.is_reserved:
+            return False, f"目标 IP '{ip}' 为保留地址，已拒绝"
+        return True, ""
+    except Exception as e:
+        return False, f"URL 校验失败: {e}"
+
+
 # ==================== 工具 1：知识库检索 ====================
 
 @tool
@@ -186,6 +233,13 @@ def run_real_test_scenario(
     """
     from backend.api.deps import get_test_executor
     from backend.models.testing import TestRunRequest, TestScenario
+
+    # SSRF 防护：允许回环（本工具设计用于测试本地部署的被测系统），
+    # 但拒绝其他内网地址和云元数据端点
+    effective_url = base_url or "http://localhost:8000/demo"
+    is_safe, reason = _check_url_safety(effective_url, allow_loopback=True)
+    if not is_safe:
+        return f"错误: base_url '{base_url}' 不在允许范围内。{reason}"
 
     scenario_map = {
         "login": TestScenario.LOGIN,
@@ -430,6 +484,44 @@ def generate_test_cases(requirement: str, scenario: str = "", count: int = 5) ->
 
 # ==================== 工具 8：读取代码文件 ====================
 
+# 密钥/敏感文件名模式（拒绝读取，防止 API Key 泄露给 LLM/用户）
+_SENSITIVE_NAME_PATTERNS = (
+    ".env",           # .env / .env.local / .env.production
+    "id_rsa",         # SSH 私钥
+    "id_ed25519",
+    ".npmrc",         # npm token
+    ".pypirc",        # PyPI token
+    "credentials",    # 通用凭证文件
+)
+# 敏感扩展名（密钥/证书类）
+_SENSITIVE_SUFFIXES = (
+    ".pem", ".key", ".p12", ".pfx",
+)
+# 允许读取的扩展名白名单（代码/配置/文档类）
+_ALLOWED_SUFFIXES = (
+    ".py", ".md", ".txt", ".yml", ".yaml", ".json", ".toml",
+    ".cfg", ".ini", ".html", ".js", ".css", ".sh", ".sql",
+    ".log", ".csv", ".xml", ".gitignore", ".example", ".bat",
+)
+
+
+def _is_sensitive_file(path: Path) -> bool:
+    """判断文件是否为敏感文件（密钥/凭证类），拒绝 Agent 读取"""
+    name = path.name.lower()
+    # .env.example 是模板文件（不含真实密钥），显式放行
+    if name == ".env.example":
+        return False
+    # .env 及其变体（.env.local / .env.production 等）
+    if name == ".env" or name.startswith(".env."):
+        return True
+    # 已知敏感文件名模式
+    for pattern in _SENSITIVE_NAME_PATTERNS:
+        if pattern in name:
+            return True
+    # 敏感扩展名
+    return name.endswith(_SENSITIVE_SUFFIXES)
+
+
 @tool
 def read_code_file(file_path: str, max_lines: int = 100) -> str:
     """读取项目内的代码文件内容，用于排查问题或理解实现。
@@ -459,6 +551,21 @@ def read_code_file(file_path: str, max_lines: int = 100) -> str:
         return f"错误: 文件不存在 {target}"
     if not target.is_file():
         return "错误: 路径不是文件"
+
+    # 密钥隔离：拒绝读取敏感文件（.env / *.pem 等），防止 API Key 泄露
+    if _is_sensitive_file(target):
+        logger.warning(f"read_code_file 拒绝读取敏感文件: {file_path}")
+        return (
+            f"错误: '{file_path}' 是敏感文件（密钥/凭证类），禁止读取。"
+            "如需查看配置项，请读取 .env.example（不含真实密钥）。"
+        )
+
+    # 扩展名白名单：只允许读取代码/配置/文档类文件
+    if not target.name.lower().endswith(_ALLOWED_SUFFIXES):
+        return (
+            f"错误: 不支持读取 '{target.suffix or '(无扩展名)'}' 类型的文件。"
+            f"允许的类型: {', '.join(_ALLOWED_SUFFIXES[:8])} 等"
+        )
 
     try:
         with open(target, "r", encoding="utf-8") as f:
@@ -520,6 +627,8 @@ def run_shell_command(command: str) -> str:
     - 运行 pytest 做快速验证
     - 查看 git 状态（只读类命令）
 
+    安全说明：使用 shell=False + 精确参数匹配，杜绝命令注入。
+
     Args:
         command: 要执行的命令字符串
 
@@ -530,30 +639,54 @@ def run_shell_command(command: str) -> str:
     import shlex
     from backend.config.settings import PROJECT_ROOT
 
-    # 白名单：只允许只读或测试类命令
-    allowed_prefixes = (
-        "python -m pytest",
-        "python -m pip list",
-        "python -m pip show",
-        "python --version",
-        "git status",
-        "git log --oneline -n",
-        "git diff --stat",
-        "dir ",
-        "ls ",
-        "find ",
+    # 安全：shell=False + 参数列表精确匹配白名单
+    # 拒绝任何包含 shell 元字符的输入（&& | ; $ ` 等）
+    if not command or not command.strip():
+        return "错误: 空命令"
+    cmd_str = command.strip()
+    # 拦截 shell 元字符，防止注入
+    dangerous_chars = ("&&", "||", ";", "|", "$", "`", ">", "<", "\n", "\r")
+    for ch in dangerous_chars:
+        if ch in cmd_str:
+            return f"错误: 命令包含非法字符 '{ch}'，已拒绝执行"
+
+    try:
+        args = shlex.split(cmd_str)
+    except ValueError as e:
+        return f"错误: 命令解析失败: {e}"
+    if not args:
+        return "错误: 空命令"
+
+    # 白名单：精确匹配命令前缀，不支持任意后缀
+    # 每项是元组，表示允许命令 args 的前 N 个元素（可追加参数，如 pytest 的测试路径）
+    ALLOWED_COMMANDS = (
+        ("python", "-m", "pytest"),
+        ("python", "-m", "pip", "list"),
+        ("python", "-m", "pip", "show"),
+        ("python", "--version"),
+        ("git", "status"),
+        ("git", "log"),
+        ("git", "diff"),
     )
-    cmd_lower = command.strip().lower()
-    if not any(cmd_lower.startswith(p.strip().lower()) for p in allowed_prefixes):
+    # 前缀匹配：白名单条目必须完整覆盖 args 的前 len(entry) 个元素
+    # 修复：原实现固定取 args[:3] 作 key，导致 4 元组的 pip 条目永远无法匹配
+    def _is_allowed(cmd_args: list[str]) -> bool:
+        for entry in ALLOWED_COMMANDS:
+            if tuple(cmd_args[:len(entry)]) == entry:
+                return True
+        return False
+
+    if not _is_allowed(args):
         return (
-            f"错误: 命令 '{command}' 不在白名单内。"
-            "允许: python -m pytest, python -m pip list/show, git status/log/diff, dir/ls/find"
+            f"错误: 命令 '{' '.join(args[:4])}' 不在白名单内。"
+            "允许: python -m pytest, python -m pip list/show, python --version, "
+            "git status/log/diff"
         )
 
     try:
         result = subprocess.run(
-            command,
-            shell=True,
+            args,  # shell=False，传入参数列表
+            shell=False,
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -565,6 +698,8 @@ def run_shell_command(command: str) -> str:
         return output[:4000] or "（命令无输出）"
     except subprocess.TimeoutExpired:
         return "错误: 命令执行超时（30秒）"
+    except FileNotFoundError:
+        return f"错误: 命令 '{args[0]}' 不存在"
     except Exception as e:
         return f"命令执行失败: {e}"
 
@@ -580,6 +715,8 @@ def check_api_health(url: str) -> str:
     - 检查被测系统的接口可用性
     - 排查连接问题
 
+    安全说明：内置 SSRF 防护，拒绝内网/回环/链路本地地址。
+
     Args:
         url: 要检查的完整 URL，例如 http://localhost:8000/health
 
@@ -589,9 +726,14 @@ def check_api_health(url: str) -> str:
     import requests
     import time
 
+    # SSRF 防护：拒绝内网/回环/链路本地地址（复用模块级校验）
+    is_safe, reason = _check_url_safety(url)
+    if not is_safe:
+        return f"错误: URL '{url}' 不在允许范围内。{reason}"
+
     try:
         start = time.time()
-        resp = requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=10, allow_redirects=False)
         elapsed = (time.time() - start) * 1000
         return f"状态: {'可用' if resp.status_code < 400 else '异常'}\n状态码: {resp.status_code}\n响应时间: {elapsed:.1f}ms\n响应内容前 200 字符: {resp.text[:200]}"
     except requests.ConnectionError:
@@ -649,6 +791,7 @@ def explore_website(url: str, headless: bool = True) -> str:
     - 为后续自定义测试步骤提供定位器信息
 
     探索结果会自动存入页面知识库，同一 URL 在 30 天内会直接复用缓存。
+    内置 SSRF 防护：仅允许公网站点，拒绝内网/回环/云元数据地址。
 
     Args:
         url: 要探索的网站 URL，例如 https://www.baidu.com
@@ -661,6 +804,11 @@ def explore_website(url: str, headless: bool = True) -> str:
     from backend.rag.page_knowledge import get_page_knowledge_store, compute_page_hash
     from backend.models.page import PageKnowledge, PageElement
     from backend.selenium_driver.driver import WebDriverManager
+
+    # SSRF 防护：本工具设计用于探索公网站点，拒绝内网/回环/云元数据
+    is_safe, reason = _check_url_safety(url)
+    if not is_safe:
+        return f"错误: URL '{url}' 不在允许范围内。{reason}"
 
     store = get_page_knowledge_store()
     cached = store.get_by_url(url)
@@ -740,6 +888,7 @@ def run_custom_test(
     url: str,
     steps: str,
     headless: bool = True,
+    sandbox: bool = False,
 ) -> str:
     """在真实浏览器中执行自定义测试步骤。
 
@@ -755,6 +904,7 @@ def run_custom_test(
             - value: URL/输入文本(格式: 定位值::输入内容)/定位值/等待秒数
             - description: 步骤描述(可选)
         headless: 是否使用无头模式，默认 True
+        sandbox: 是否使用沙盒模式（不启动真实浏览器，仅模拟执行），默认 False。
 
     Returns:
         测试执行结果摘要。
@@ -780,6 +930,19 @@ def run_custom_test(
     except json.JSONDecodeError as e:
         return f"步骤 JSON 解析失败: {e}"
 
+    # SSRF 防护：主 URL 与 navigate 步骤内的 URL 都要校验，
+    # 防止通过 navigate 步骤绕过主 URL 检查访问内网/云元数据
+    is_safe, reason = _check_url_safety(url)
+    if not is_safe:
+        return f"错误: URL '{url}' 不在允许范围内。{reason}"
+    for s in steps_data:
+        if isinstance(s, dict) and str(s.get("action", "")).lower() == "navigate":
+            nav_url = str(s.get("value", ""))
+            if nav_url.startswith(("http://", "https://")):
+                nav_safe, nav_reason = _check_url_safety(nav_url)
+                if not nav_safe:
+                    return f"错误: navigate 步骤的 URL '{nav_url}' 不在允许范围内。{nav_reason}"
+
     custom_steps = []
     for s in steps_data:
         custom_steps.append(CustomTestStep(
@@ -796,7 +959,7 @@ def run_custom_test(
         headless=headless,
         timeout_seconds=30,
         auto_analyze=False,
-        sandbox=True,
+        sandbox=sandbox,
         custom_scenarios=[scenario],
     )
 

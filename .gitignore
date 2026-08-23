@@ -59,3 +59,6 @@ tmp_verify_all.py
 # 开发辅助文件（内部评估/开发约束，非项目文档）
 CLAUDE.md
 STATUS.md
+
+# 反馈/审查文档（含 JIRA 凭证与内部讨论，不上传 GitHub）
+反馈文件/

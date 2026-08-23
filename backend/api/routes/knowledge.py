@@ -48,8 +48,18 @@ async def upload_document(
             content={"error": True, "message": "文件名不能为空"},
         )
 
+    # ---- 路径穿越防护：只取 basename，剥离任何目录成分 ----
+    # "../../evil.txt" → "evil.txt"，防止写出上传目录之外
+    safe_name = Path(file.filename).name
+    if not safe_name or safe_name in (".", ".."):
+        return JSONResponse(
+            status_code=400,
+            content={"error": True, "message": "非法文件名"},
+        )
+    file.filename = safe_name
+
     # ---- 校验文件格式 ----
-    ext = Path(file.filename).suffix.lower()
+    ext = Path(safe_name).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         return JSONResponse(
             status_code=400,

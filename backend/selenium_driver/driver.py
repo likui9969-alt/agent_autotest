@@ -843,7 +843,7 @@ class WebDriverManager:
             base64 编码的 PNG 图片字符串；失败返回空字符串
         """
         try:
-            driver = self.get_driver()
+            driver = self.driver  # 使用 @property，已存在则复用
             return driver.get_screenshot_as_base64()
         except Exception as e:
             logger.warning(f"截图失败: {e}")
