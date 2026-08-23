@@ -20,6 +20,20 @@
 
 *在线播放失败时可 [下载视频观看](https://github.com/likui9969-alt/agent_autotest/raw/main/docs/demo.mp4)*
 
+### 产品截图
+
+**知识库管理** — 文档上传、向量库重建、知识库概况统计
+
+![知识库管理](img.png)
+
+**自动化测试** — Selenium 场景配置、无头/可见模式、环境诊断
+
+![自动化测试](img_1.png)
+
+**Agent 执行** — LangGraph Supervisor + ReAct 循环、13 个内置工具
+
+![Agent 执行](img_2.png)
+
 ### 核心能力
 
 - 管理测试知识库（日志、缺陷单、技术文档），支持上传、检索、增量索引
