@@ -18,7 +18,10 @@ from openai import (
     RateLimitError,
 )
 
-from backend.config.settings import get_settings
+# 注意：通过模块属性访问 get_settings（而非 from-import 直接绑定），
+# 保证测试中 patch("backend.config.settings.get_settings") 对本模块一致生效，
+# 避免模块首次 import 时机不同导致的顺序敏感污染。
+from backend.config import settings as _settings_module
 from backend.llm.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,
@@ -63,7 +66,7 @@ class LLMClient:
 
     def __init__(self):
         """初始化客户端 — 从全局配置读取 Provider 列表"""
-        settings = get_settings()
+        settings = _settings_module.get_settings()
 
         # provider 优先级：LLM_PROVIDERS > LLM_PROVIDER
         provider_names = settings.LLM_PROVIDERS
@@ -122,7 +125,7 @@ class LLMClient:
             logger.warning("LLM 调用被熔断器拒绝（快速失败）")
             raise CircuitBreakerOpenError("熔断器开启，LLM 调用被拒绝")
 
-        settings = get_settings()
+        settings = _settings_module.get_settings()
         max_attempts = settings.LLM_RETRY_MAX_ATTEMPTS
         base_delay = settings.LLM_RETRY_BASE_DELAY
         max_delay = settings.LLM_RETRY_MAX_DELAY

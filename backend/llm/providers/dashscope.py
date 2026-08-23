@@ -1,7 +1,8 @@
 """
 阿里云百炼 DashScope Provider
 """
-from backend.config.settings import get_settings
+# 模块属性访问 get_settings，保证测试 patch 一致生效（见 client.py 同款注释）
+from backend.config import settings as _settings_module
 from backend.llm.providers.openai_compatible import OpenAICompatibleProvider
 
 
@@ -11,7 +12,7 @@ class DashScopeProvider(OpenAICompatibleProvider):
     name = "dashscope"
 
     def __init__(self):
-        settings = get_settings()
+        settings = _settings_module.get_settings()
         if not settings.DASHSCOPE_API_KEY:
             raise ValueError(
                 "DASHSCOPE_API_KEY 未配置！请在 .env 文件中设置阿里云百炼 API Key"

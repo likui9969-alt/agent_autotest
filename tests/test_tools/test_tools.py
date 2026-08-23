@@ -120,9 +120,9 @@ class TestGetRuntimeLogs:
         log_file = log_dir / "app.log"
         log_file.write_text("".join(SAMPLE_RUNTIME_LOG_LINES), encoding="utf-8")
 
-        # Patch log_dir to use temp path and also patch Path.exists for the log file check
+        # LOG_DIR 为真实字段，get_log_dir() 会优先返回它
         with patch("backend.config.settings.get_settings") as mock_get:
-            mock_settings.get_log_dir = MagicMock(return_value=str(log_dir))
+            mock_settings.LOG_DIR = str(log_dir)
             mock_get.return_value = mock_settings
 
             result = get_runtime_logs.invoke({"tail_lines": 200, "level": "all"})
@@ -138,7 +138,7 @@ class TestGetRuntimeLogs:
         log_file.write_text("".join(SAMPLE_RUNTIME_LOG_LINES), encoding="utf-8")
 
         with patch("backend.config.settings.get_settings") as mock_get:
-            mock_settings.get_log_dir = MagicMock(return_value=str(log_dir))
+            mock_settings.LOG_DIR = str(log_dir)
             mock_get.return_value = mock_settings
 
             result = get_runtime_logs.invoke({"tail_lines": 200, "level": "ERROR"})
@@ -149,7 +149,7 @@ class TestGetRuntimeLogs:
     def test_log_file_not_exists(self, mock_settings):
         """日志文件不存在时返回提示"""
         with patch("backend.config.settings.get_settings") as mock_get:
-            mock_settings.get_log_dir = MagicMock(return_value="/nonexistent/path")
+            mock_settings.LOG_DIR = "/nonexistent/path"
             mock_get.return_value = mock_settings
 
             result = get_runtime_logs.invoke({"tail_lines": 200, "level": "all"})
@@ -164,9 +164,12 @@ class TestGetRuntimeLogs:
         lines = [f"2024-01-15 | INFO | test:{i} | line {i}\n" for i in range(100)]
         log_file.write_text("".join(lines), encoding="utf-8")
 
-        mock_settings.get_log_dir.return_value = str(log_dir)
+        with patch("backend.config.settings.get_settings") as mock_get:
+            mock_settings.LOG_DIR = str(log_dir)
+            mock_get.return_value = mock_settings
 
-        result = get_runtime_logs.invoke({"tail_lines": 10, "level": "all"})
+            result = get_runtime_logs.invoke({"tail_lines": 10, "level": "all"})
+
         line_count = len(result.strip().split("\n"))
         assert line_count <= 11  # 可能包含一些空格行
 

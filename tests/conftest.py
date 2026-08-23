@@ -88,63 +88,27 @@ def mock_env_vars():
 
 @pytest.fixture
 def mock_settings():
-    """返回一个 Mock Settings 对象，替代真实 Pydantic 配置"""
-    from unittest.mock import MagicMock
+    """返回测试用 Settings 实例
 
-    settings = MagicMock()
-    settings.APP_NAME = "TestApp"
-    settings.APP_VERSION = "1.0.0"
-    settings.DEBUG = True
+    使用真实 Settings(_env_file=None) 构造（跳过 .env 文件，读取环境变量
+    与字段默认值），保证所有字段的类型/默认值与生产一致——此前用
+    MagicMock 导致未显式赋值的字段（如 LLM_PROVIDERS）是 MagicMock
+    对象，在 LLMClient 中触发 TypeError 被吞、表现为"没有可用的
+    LLM Provider"，且行为依赖测试执行顺序（from-import 绑定时机）。
+    """
+    from backend.config.settings import Settings
 
-    # LLM
+    settings = Settings(_env_file=None)
+    # 覆盖敏感/环境相关字段为确定值
     settings.DASHSCOPE_API_KEY = "sk-test-key"
     settings.DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     settings.LLM_MODEL = "deepseek-v3"
     settings.EMBEDDING_MODEL = "text-embedding-v3"
-    settings.LLM_TEMPERATURE = 0.1
-    settings.LLM_MAX_TOKENS = 4096
-
-    # RAG
-    settings.CHUNK_SIZE = 1000
-    settings.CHUNK_OVERLAP = 200
-    settings.RETRIEVER_TOP_K = 5
-    settings.CHROMA_PERSIST_DIR = ""
-    settings.RERANK_ENABLED = True
-    settings.RERANK_CANDIDATE_K = 10
-
-    # Selenium
-    settings.CHROMEDRIVER_PATH = ""
-    settings.CHROME_BINARY_PATH = ""
-
-    # JIRA
+    # JIRA 显式清空（避免误用本地 .env 泄漏的真实配置）
     settings.JIRA_URL = ""
     settings.JIRA_USERNAME = ""
     settings.JIRA_API_TOKEN = ""
     settings.JIRA_PROJECT_KEY = ""
-
-    # Paths
-    settings.DATA_DIR = ""
-    settings.UPLOAD_DIR = ""
-    settings.LOG_DIR = ""
-
-    def fake_get_chroma_dir():
-        return str(PROJECT_ROOT / "data" / "chroma")
-    settings.get_chroma_dir = fake_get_chroma_dir
-
-    def fake_get_log_dir():
-        return str(PROJECT_ROOT / "data" / "logs")
-    settings.get_log_dir = fake_get_log_dir
-
-    def fake_get_upload_dir():
-        return str(PROJECT_ROOT / "data" / "docs")
-    settings.get_upload_dir = fake_get_upload_dir
-
-    def fake_get_chromedriver_path():
-        return ""
-    settings.get_chromedriver_path = fake_get_chromedriver_path
-
-    settings.Config = MagicMock()
-
     return settings
 
 
