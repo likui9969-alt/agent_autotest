@@ -10,16 +10,15 @@ python-dotenv==1.0.0
 PyYAML==6.0.3
 
 # ==================== 阿里云百炼 / LLM ====================
+# 直接使用 openai SDK（OpenAI 兼容协议），不经 langchain-openai 封装
 openai==2.41.0
 
-# ==================== LangChain + RAG ====================
+# ==================== LangGraph + RAG ====================
+# 项目仅直接依赖 langchain-core（tools/documents/messages）、
+# langchain-text-splitters、langgraph；向量库用 chromadb 原生 API
 langgraph==0.2.76
-langchain==0.3.30
 langchain-core==0.3.86
-langchain-community==0.3.27
 langchain-text-splitters==0.3.11
-langchain-openai==1.2.2
-langchain-chroma==1.1.0
 chromadb==1.5.9
 
 # ==================== 文档处理 ====================
