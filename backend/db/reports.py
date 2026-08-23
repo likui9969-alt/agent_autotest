@@ -8,7 +8,6 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from backend.config.settings import get_settings
 
@@ -25,7 +24,7 @@ class TestReportStore:
         - created_at: 创建时间
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         settings = get_settings()
         if db_path:
             self._db_path = Path(db_path)
@@ -65,7 +64,7 @@ class TestReportStore:
         report_type: str,
         status: str,
         result: dict,
-        report_id: Optional[str] = None,
+        report_id: str | None = None,
     ) -> str:
         """保存测试报告
 
@@ -100,7 +99,7 @@ class TestReportStore:
             conn.commit()
         return report_id
 
-    def list_reports(self, limit: int = 50, report_type: Optional[str] = None) -> list[dict]:
+    def list_reports(self, limit: int = 50, report_type: str | None = None) -> list[dict]:
         """查询报告列表"""
         with self._connect() as conn:
             if report_type:
@@ -127,7 +126,7 @@ class TestReportStore:
 
         return [dict(row) for row in rows]
 
-    def get_report(self, report_id: str) -> Optional[dict]:
+    def get_report(self, report_id: str) -> dict | None:
         """获取报告详情"""
         with self._connect() as conn:
             row = conn.execute(

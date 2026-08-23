@@ -6,14 +6,14 @@ API 集成测试
 """
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
 
-from backend.main import app
 from backend.api.deps import get_rag_pipeline, get_test_executor
+from backend.main import app
 from backend.models.testing import TestCaseResult, TestReport, TestStatus
-
 
 # ---- Fake 依赖 ----
 

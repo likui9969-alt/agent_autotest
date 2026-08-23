@@ -9,8 +9,8 @@ import logging
 import time
 from collections import OrderedDict
 
-from backend.agent.memory.store import ConversationMemoryStore, get_conversation_memory_store
 from backend.agent.memory.context import build_memory_context
+from backend.agent.memory.store import ConversationMemoryStore, get_conversation_memory_store
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -131,8 +131,8 @@ class SessionMemoryManager:
 
 __all__ = [
     "ConversationMemory",
-    "SessionMemoryManager",
     "ConversationMemoryStore",
-    "get_conversation_memory_store",
+    "SessionMemoryManager",
     "build_memory_context",
+    "get_conversation_memory_store",
 ]

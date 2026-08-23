@@ -9,17 +9,16 @@ Tests for RAG Module
 - RAGPipeline
 """
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
-import pytest
+from unittest.mock import MagicMock, patch
 
+import pytest
 from langchain_core.documents import Document
 
-from backend.rag.splitter import TextSplitter
-from backend.rag.loader import DocumentLoader
 from backend.rag.embeddings import EmbeddingGenerator
+from backend.rag.loader import DocumentLoader
 from backend.rag.retriever import Retriever
+from backend.rag.splitter import TextSplitter
 from backend.rag.vector_store import VectorStore
-
 
 # ==================== TextSplitter Tests ====================
 
@@ -431,7 +430,7 @@ class TestRetriever:
 
     def test_mmr_numpy_path(self):
         """numpy 路径的 MMR 应正确运行"""
-        from backend.rag.retriever import Retriever, _HAS_NUMPY
+        from backend.rag.retriever import _HAS_NUMPY, Retriever
         if not _HAS_NUMPY:
             pytest.skip("numpy not available")
 
@@ -465,7 +464,7 @@ class TestRetriever:
 
     def test_mmr_output_consistent(self):
         """numpy 与 Python 路径结果应一致"""
-        from backend.rag.retriever import Retriever, _HAS_NUMPY
+        from backend.rag.retriever import _HAS_NUMPY, Retriever
         if not _HAS_NUMPY:
             pytest.skip("numpy not available")
 
@@ -540,8 +539,8 @@ class TestRAGPipeline:
 
     def test_query_returns_response(self, mock_llm_client):
         """RAG 查询应返回结构化的 RAGQueryResponse"""
-        from backend.rag.pipeline import RAGPipeline
         from backend.models.rag import RAGQueryRequest
+        from backend.rag.pipeline import RAGPipeline
 
         pipeline = RAGPipeline(llm_client=mock_llm_client)
 

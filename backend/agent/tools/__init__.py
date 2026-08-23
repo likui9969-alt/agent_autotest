@@ -5,10 +5,13 @@ Agent 工具定义模块
 from __future__ import annotations
 
 import logging
-import os
-import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
 from langchain_core.tools import tool
+
+if TYPE_CHECKING:
+    from backend.models.page import PageKnowledge
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -29,9 +32,9 @@ def _check_url_safety(target_url: str, allow_loopback: bool = False) -> tuple[bo
     Returns:
         (是否安全, 失败原因)
     """
-    from urllib.parse import urlparse
     import ipaddress
     import socket
+    from urllib.parse import urlparse
 
     try:
         parsed = urlparse(target_url)
@@ -173,8 +176,8 @@ def execute_test_scenario(scenario: str) -> str:
 
     from backend.selenium_driver.scenarios.mock_scenarios import (
         run_mock_login_test,
-        run_mock_search_test,
         run_mock_order_test,
+        run_mock_search_test,
     )
     runner_map = {
         TestScenario.LOGIN: run_mock_login_test,
@@ -350,7 +353,7 @@ def get_runtime_logs(tail_lines: int = 200, level: str = "all") -> str:
     tail_lines = max(1, min(int(tail_lines), 2000))
 
     try:
-        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        with open(log_file, encoding="utf-8", errors="replace") as f:
             all_lines = f.readlines()
     except PermissionError:
         # 文件被其他进程锁定，尝试读取副本
@@ -409,10 +412,10 @@ def get_system_status() -> str:
         lines.append(f"- Chroma 向量库: ❌ 异常 — {str(e)[:100]}")
 
     # ---- chromedriver & Chrome 浏览器 ----
-    from backend.selenium_driver.driver import detect_chrome
     from backend.selenium_driver.driver import (
-        _get_chromedriver_major_version,
         _get_chrome_major_version,
+        _get_chromedriver_major_version,
+        detect_chrome,
     )
 
     chrome_binary, driver_path = detect_chrome()
@@ -568,7 +571,7 @@ def read_code_file(file_path: str, max_lines: int = 100) -> str:
         )
 
     try:
-        with open(target, "r", encoding="utf-8") as f:
+        with open(target, encoding="utf-8") as f:
             lines = f.readlines()
         total = len(lines)
         head = lines[:max_lines]
@@ -635,8 +638,9 @@ def run_shell_command(command: str) -> str:
     Returns:
         命令输出或错误提示。
     """
-    import subprocess
     import shlex
+    import subprocess
+
     from backend.config.settings import PROJECT_ROOT
 
     # 安全：shell=False + 参数列表精确匹配白名单
@@ -671,10 +675,7 @@ def run_shell_command(command: str) -> str:
     # 前缀匹配：白名单条目必须完整覆盖 args 的前 len(entry) 个元素
     # 修复：原实现固定取 args[:3] 作 key，导致 4 元组的 pip 条目永远无法匹配
     def _is_allowed(cmd_args: list[str]) -> bool:
-        for entry in ALLOWED_COMMANDS:
-            if tuple(cmd_args[:len(entry)]) == entry:
-                return True
-        return False
+        return any(tuple(cmd_args[:len(entry)]) == entry for entry in ALLOWED_COMMANDS)
 
     if not _is_allowed(args):
         return (
@@ -723,8 +724,9 @@ def check_api_health(url: str) -> str:
     Returns:
         接口状态、状态码和响应时间。
     """
-    import requests
     import time
+
+    import requests
 
     # SSRF 防护：拒绝内网/回环/链路本地地址（复用模块级校验）
     is_safe, reason = _check_url_safety(url)
@@ -769,7 +771,7 @@ def get_recent_test_logs(tail_lines: int = 50) -> str:
         return "运行日志文件不存在"
 
     try:
-        with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+        with open(log_file, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         # 过滤包含"测试"关键字的行
         test_lines = [ln for ln in lines if "测试" in ln or "test" in ln.lower()]
@@ -801,8 +803,9 @@ def explore_website(url: str, headless: bool = True) -> str:
         页面结构信息：标题、URL、页面类型、输入框/按钮/链接列表。
     """
     import time
-    from backend.rag.page_knowledge import get_page_knowledge_store, compute_page_hash
-    from backend.models.page import PageKnowledge, PageElement
+
+    from backend.models.page import PageElement, PageKnowledge
+    from backend.rag.page_knowledge import compute_page_hash, get_page_knowledge_store
     from backend.selenium_driver.driver import WebDriverManager
 
     # SSRF 防护：本工具设计用于探索公网站点，拒绝内网/回环/云元数据
@@ -832,7 +835,7 @@ def explore_website(url: str, headless: bool = True) -> str:
             page_type=page_info.get("page_type", "unknown"),
             inputs=[PageElement(**i) for i in page_info.get("inputs", [])],
             buttons=[PageElement(**b) for b in page_info.get("buttons", [])],
-            links=[PageElement(**l) for l in page_info.get("links", [])],
+            links=[PageElement(**lnk) for lnk in page_info.get("links", [])],
             forms=page_info.get("forms", []),
             page_hash=page_hash,
             html_summary=page_info.get("title", ""),
@@ -919,10 +922,14 @@ def run_custom_test(
         ]
     """
     import json
+
     from backend.api.deps import get_test_executor
     from backend.models.testing import (
-        TestRunRequest, TestScenario, CustomScenario,
-        CustomTestStep, CustomStepAction,
+        CustomScenario,
+        CustomStepAction,
+        CustomTestStep,
+        TestRunRequest,
+        TestScenario,
     )
 
     try:

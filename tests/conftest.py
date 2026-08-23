@@ -4,11 +4,9 @@
 """
 import os
 import sys
-import json
 import uuid
 from pathlib import Path
-from datetime import datetime
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -180,7 +178,6 @@ def mock_llm_client():
 
     def fake_chat_with_tools(messages, tools, tool_choice="auto", temperature=None, max_tokens=None):
         """模拟带工具的 chat 调用——根据消息内容判断是否返回 tool_call"""
-        import json
         # 检查最后一条用户消息
         last_msg = messages[-1]["content"] if messages else ""
         # 如果 last_msg 含有工具调用指令的特定关键词，返回 tool_call
@@ -207,7 +204,6 @@ def patch_llm_client(mock_llm_client):
 @pytest.fixture
 def mock_agent_state():
     """返回一个最小可用的 AgentState 字典"""
-    from backend.agent.state import AgentState
     return {
         "messages": [],
         "task_type": "unknown",
@@ -274,6 +270,7 @@ def mock_vector_store():
 def mock_retriever():
     """返回 Mock Retriever"""
     from unittest.mock import MagicMock
+
     from langchain_core.documents import Document
 
     retriever = MagicMock()
@@ -328,6 +325,7 @@ def mock_rag_pipeline():
 def mock_log_analyzer():
     """返回 Mock LogAnalyzer"""
     from unittest.mock import MagicMock
+
     from backend.models.analysis import AnalysisResult, ExceptionInfo
 
     analyzer = MagicMock()

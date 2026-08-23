@@ -2,11 +2,10 @@
 应用配置管理模块
 使用 Pydantic BaseSettings 读取 .env 文件，提供类型安全的配置对象
 """
-import os
-from pathlib import Path
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pathlib import Path
 
+from pydantic_settings import BaseSettings
 
 # 项目根目录 — 从当前文件向上查找 3 级 (config -> backend -> 仓库根目录)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -167,7 +166,7 @@ class Settings(BaseSettings):
         extra = "ignore"  # 忽略 .env 中未定义的字段
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """获取配置单例（带缓存，避免重复读取 .env）"""
     return Settings()

@@ -11,6 +11,7 @@
 import logging
 import re
 from pathlib import Path
+
 from langchain_core.documents import Document
 
 logger = logging.getLogger("ai_rd_agent")
@@ -190,7 +191,7 @@ class DocumentLoader:
 
     def _load_textlike(self, path: Path, file_type: str) -> list[Document]:
         """加载文本类文件（.txt / .md / .csv）"""
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:
             content = f.read()
 
         # CSV 文件特殊处理：前 100 行预览 + 结构化数据标记
@@ -223,7 +224,7 @@ class DocumentLoader:
         try:
             from pypdf import PdfReader
         except ImportError:
-            raise ImportError("请安装 pypdf: pip install pypdf")
+            raise ImportError("请安装 pypdf: pip install pypdf") from None
 
         reader = PdfReader(str(path))
         docs = []
@@ -249,7 +250,7 @@ class DocumentLoader:
         try:
             from docx import Document as DocxDocument
         except ImportError:
-            raise ImportError("请安装 python-docx: pip install python-docx")
+            raise ImportError("请安装 python-docx: pip install python-docx") from None
 
         doc = DocxDocument(str(path))
 

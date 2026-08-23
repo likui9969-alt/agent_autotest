@@ -19,14 +19,13 @@ import logging
 import time
 from typing import Literal
 
-from langgraph.graph import StateGraph, END
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langgraph.graph import END, StateGraph
 
-from backend.agent.state import AgentState
-from backend.agent.tools import ALL_TOOLS
 from backend.agent.loop_detector import LoopDetector
+from backend.agent.state import AgentState
 from backend.agent.task_registry import is_cancelled
-from backend.llm.prompts import get_template
+from backend.agent.tools import ALL_TOOLS
 
 # LangChain → OpenAI 角色映射
 ROLE_MAP = {
@@ -282,7 +281,7 @@ def make_react_reason_node(node_name: str, extra_context: str = "", node_key: st
             return {
                 "next_action": "error",
                 "error": str(e),
-                "final_response": f"处理请求时发生错误: {str(e)}",
+                "final_response": f"处理请求时发生错误: {e!s}",
             }
 
     return react_reason
@@ -321,7 +320,7 @@ def execute_tools_node(state: AgentState) -> dict:
                 logger.info(f"[ToolExecutor] {tool_name} 完成 ({len(output)} 字符, {duration_ms:.0f}ms)")
             except Exception as e:
                 duration_ms = (time.time() - started) * 1000
-                output = f"工具执行失败: {str(e)}"
+                output = f"工具执行失败: {e!s}"
                 logger.error(f"[ToolExecutor] {tool_name} 失败: {e}")
 
         results.append({

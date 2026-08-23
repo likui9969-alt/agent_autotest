@@ -6,14 +6,10 @@ Tests for CircuitBreaker
 """
 import threading
 import time
-from unittest.mock import patch
-
-import pytest
 
 from backend.llm.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,
-    CircuitBreakerOpenError,
     CircuitState,
 )
 

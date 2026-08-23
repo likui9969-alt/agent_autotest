@@ -2,7 +2,7 @@
 LLM Provider 抽象基类
 """
 from abc import ABC, abstractmethod
-from typing import Iterator
+from collections.abc import Iterator
 
 
 class LLMResponse:
@@ -33,7 +33,6 @@ class BaseLLMProvider(ABC):
         stream: bool = False,
     ) -> str | Iterator[str]:
         """对话生成"""
-        pass
 
     @abstractmethod
     def chat_with_tools(
@@ -45,12 +44,10 @@ class BaseLLMProvider(ABC):
         max_tokens: int | None = None,
     ) -> LLMResponse:
         """带工具调用的对话"""
-        pass
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]:
         """文本嵌入"""
-        pass
 
     def is_available(self) -> bool:
         """Provider 是否可用（由子类根据配置判断）"""

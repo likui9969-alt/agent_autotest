@@ -7,17 +7,17 @@ Mock 测试场景模块 — 沙盒模式
 - 随机成功/失败（支持配置失败率）
 - 真实的错误日志格式
 """
-import os
-import time
-import random
 import logging
+import os
+import random
+import time
 from datetime import datetime
 
 from backend.models.testing import (
-    TestRunRequest,
     TestCaseResult,
-    TestStepResult,
+    TestRunRequest,
     TestStatus,
+    TestStepResult,
 )
 
 logger = logging.getLogger("ai_rd_agent")

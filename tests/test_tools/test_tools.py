@@ -10,21 +10,27 @@ Tests for Agent Tools
 - list_directory
 - check_api_health
 """
-from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from backend.agent.tools import (
-    search_knowledge_base,
-    parse_log_content,
+    check_api_health,
     get_runtime_logs,
     get_system_status,
-    run_shell_command,
-    check_api_health,
-    read_code_file,
     list_directory,
+    parse_log_content,
+    read_code_file,
+    run_shell_command,
+    search_knowledge_base,
 )
-from tests.conftest import SAMPLE_LOG_WITH_TRACEBACK, SAMPLE_LOG_PLAIN, SAMPLE_LOG_NO_ERROR, SAMPLE_RUNTIME_LOG_LINES
+from tests.conftest import (
+    SAMPLE_LOG_NO_ERROR,
+    SAMPLE_LOG_PLAIN,
+    SAMPLE_LOG_WITH_TRACEBACK,
+    SAMPLE_RUNTIME_LOG_LINES,
+)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -271,7 +277,6 @@ class TestRunShellCommand:
 
     def test_shell_false_used(self):
         """验证使用 shell=False（不通过 shell 解释器执行）"""
-        import subprocess
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(stdout="ok", stderr="")
             run_shell_command.invoke({"command": "python --version"})
@@ -285,7 +290,6 @@ class TestCheckApiHealth:
 
     def test_api_available(self):
         """可用的 API 应返回状态码（公网地址）"""
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -340,7 +344,6 @@ class TestCheckApiHealth:
 
     def test_no_redirect(self):
         """验证禁用重定向（防 SSRF 重定向绕过）"""
-        import requests
 
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -529,6 +532,7 @@ class TestBrowserToolsSSRF:
     def test_run_custom_test_ssrf_blocked(self):
         """run_custom_test 主 URL 为内网地址应拒绝"""
         import json
+
         from backend.agent.tools import run_custom_test
         steps = json.dumps([{"action": "navigate", "value": "http://10.0.0.1/admin"}])
         result = run_custom_test.invoke({"url": "http://10.0.0.1/", "steps": steps})
@@ -539,6 +543,7 @@ class TestBrowserToolsSSRF:
         import ipaddress
         import json
         from unittest.mock import patch as _patch
+
         from backend.agent.tools import run_custom_test
         steps = json.dumps([
             {"action": "navigate", "value": "http://169.254.169.254/latest/meta-data/"}

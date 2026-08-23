@@ -2,21 +2,25 @@
 自定义测试场景执行器
 根据用户定义的步骤列表驱动 Selenium 执行任意网站测试
 """
-import time
-import random
 import logging
+import random
+import time
 from datetime import datetime
 
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementNotInteractableException
+from selenium.common.exceptions import (
+    ElementNotInteractableException,
+    NoSuchElementException,
+    TimeoutException,
+)
 from selenium.webdriver.common.action_chains import ActionChains
 
 from backend.models.testing import (
-    TestRunRequest,
-    TestCaseResult,
-    TestStepResult,
-    TestStatus,
     CustomScenario,
     CustomStepAction,
+    TestCaseResult,
+    TestRunRequest,
+    TestStatus,
+    TestStepResult,
 )
 from backend.selenium_driver.driver import WebDriverManager
 
@@ -52,7 +56,7 @@ def run_custom_scenario(
         manager = shared_manager
 
     try:
-        driver = manager.create_driver()
+        manager.create_driver()
         base_url = request.base_url.rstrip("/")
         selenium_logs.append(f"[INFO] 开始自定义场景: {scenario.name}")
 
@@ -189,7 +193,6 @@ def _is_element_usable(el) -> bool:
 def _safe_input(manager: WebDriverManager, el, text: str) -> None:
     """安全输入：优先模拟真实用户输入，失败再回退 JS 设置 value"""
     driver = manager.driver
-    last_err = None
 
     # 1) 原生 clear + send_keys
     try:
@@ -197,15 +200,15 @@ def _safe_input(manager: WebDriverManager, el, text: str) -> None:
             el.clear()
             el.send_keys(text)
             return
-    except ElementNotInteractableException as e:
-        last_err = e
+    except ElementNotInteractableException:
+        pass
 
     # 2) ActionChains 模拟鼠标聚焦后输入（对 Baidu 等反爬页面更友好）
     try:
         ActionChains(driver).move_to_element(el).click(el).send_keys(text).perform()
         return
-    except Exception as e:
-        last_err = e
+    except Exception:
+        pass
 
     # 3) 最终回退：JS 设置 value 并触发 input/change
     # 使用 KeyboardEvent/InputEvent 更贴近真实输入，且兼容不同 Chrome 版本

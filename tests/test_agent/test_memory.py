@@ -7,15 +7,15 @@ Tests for Conversation Memory Module
 import time
 import uuid
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
 import pytest
 
 from backend.agent.memory import (
-    ConversationMemory,
-    SessionMemoryManager,
-    ConversationMemoryStore,
-    _DEFAULT_MAX_TURNS,
     _SESSION_TTL_SECONDS,
+    ConversationMemory,
+    ConversationMemoryStore,
+    SessionMemoryManager,
 )
 
 

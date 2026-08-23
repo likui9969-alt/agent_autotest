@@ -2,11 +2,13 @@
 
 > 基于 RAG + LangGraph Multi-Agent 的自动化测试与故障分析系统
 
+[![CI](https://github.com/likui9969-alt/agent_autotest/actions/workflows/ci.yml/badge.svg)](https://github.com/likui9969-alt/agent_autotest/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.38-red.svg)](https://streamlit.io)
 [![LangGraph](https://img.shields.io/badge/LangGraph-0.2-purple.svg)](https://langchain-ai.github.io/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
+[![Tests](https://img.shields.io/badge/tests-300%20passed-brightgreen.svg)]()
 
 ## 简介
 

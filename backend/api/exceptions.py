@@ -3,6 +3,7 @@
 统一捕获和格式化 API 异常响应
 """
 import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -80,7 +81,7 @@ def register_exception_handlers(app: FastAPI):
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         """兜底异常处理器 — 捕获所有未被处理的异常"""
-        logger.error(f"未处理异常: {type(exc).__name__}: {exc}", exc_info=True)
+        logger.error(f"未处理异常: {type(exc).__name__}: {exc}", exc_info=exc)
         return JSONResponse(
             status_code=500,
             content={

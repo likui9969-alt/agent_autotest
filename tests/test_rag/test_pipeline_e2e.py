@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.documents import Document
 
-from backend.rag.pipeline import RAGPipeline, _compute_file_hash
 from backend.models.rag import RAGQueryRequest
+from backend.rag.pipeline import RAGPipeline, _compute_file_hash
 
 
 @pytest.fixture

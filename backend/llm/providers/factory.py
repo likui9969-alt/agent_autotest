@@ -7,8 +7,8 @@ import logging
 
 from backend.llm.providers.base import BaseLLMProvider
 from backend.llm.providers.dashscope import DashScopeProvider
-from backend.llm.providers.openai import OpenAIProvider
 from backend.llm.providers.ollama import OllamaProvider
+from backend.llm.providers.openai import OpenAIProvider
 
 logger = logging.getLogger("ai_rd_agent")
 

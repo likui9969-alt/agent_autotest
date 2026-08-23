@@ -5,7 +5,8 @@ AgentState — LangGraph 全局状态定义
 而非覆盖，保证并行节点安全合并。
 """
 import operator
-from typing import TypedDict, Annotated, Any
+from typing import Annotated, Any, TypedDict
+
 from langchain_core.messages import BaseMessage
 
 

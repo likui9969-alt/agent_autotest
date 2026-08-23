@@ -10,9 +10,9 @@ LLM 熔断器模块
 
 线程安全：所有状态读写均通过 threading.Lock 保护，支持多线程并发调用。
 """
-import time
 import logging
 import threading
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger("ai_rd_agent")
@@ -20,7 +20,6 @@ logger = logging.getLogger("ai_rd_agent")
 
 class CircuitBreakerOpenError(Exception):
     """熔断器开启时抛出的异常，表示 LLM 调用被快速拒绝"""
-    pass
 
 
 class CircuitState:

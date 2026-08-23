@@ -6,7 +6,6 @@ Agent 任务注册表
 """
 import asyncio
 import logging
-from typing import Optional
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -50,6 +49,6 @@ def unregister(task_id: str) -> None:
     logger.info(f"[TaskRegistry] 任务注销: {task_id}")
 
 
-def get_event(task_id: str) -> Optional[asyncio.Event]:
+def get_event(task_id: str) -> asyncio.Event | None:
     """获取任务的取消 Event（用于在图中检查）"""
     return _tasks.get(task_id)

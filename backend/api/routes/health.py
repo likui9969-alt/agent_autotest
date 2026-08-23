@@ -4,6 +4,7 @@ GET /health — 返回服务及依赖组件的存活状态
 GET /system/selenium-diagnose — 返回 Chrome / chromedriver 诊断信息
 """
 import logging
+
 from fastapi import APIRouter
 
 logger = logging.getLogger("ai_rd_agent")
@@ -71,11 +72,12 @@ async def selenium_diagnose():
     返回结构化诊断信息，帮助用户快速定位真实浏览器测试无法启动的原因。
     """
     from pathlib import Path
+
     from backend.config.settings import get_settings
-    from backend.selenium_driver.driver import detect_chrome
     from backend.selenium_driver.driver import (
-        _get_chromedriver_major_version,
         _get_chrome_major_version,
+        _get_chromedriver_major_version,
+        detect_chrome,
     )
 
     settings = get_settings()

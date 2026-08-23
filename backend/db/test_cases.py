@@ -10,7 +10,6 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from backend.config.settings import get_settings
 from backend.models.test_case import TestCase
@@ -19,7 +18,7 @@ from backend.models.test_case import TestCase
 class TestCaseStore:
     """测试用例数据库存储"""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         settings = get_settings()
         if db_path:
             self._db_path = Path(db_path)
@@ -108,7 +107,7 @@ class TestCaseStore:
             ).fetchall()
         return [self._row_to_case(row) for row in rows]
 
-    def get_case(self, case_id: str) -> Optional[TestCase]:
+    def get_case(self, case_id: str) -> TestCase | None:
         """获取单条用例"""
         with self._connect() as conn:
             row = conn.execute(

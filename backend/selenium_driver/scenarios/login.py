@@ -2,16 +2,17 @@
 登录流程自动化测试场景
 测试目标：验证 Web 应用的登录功能是否正常
 """
-import time
 import logging
+import time
 from datetime import datetime
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
 from backend.models.testing import (
-    TestRunRequest,
     TestCaseResult,
-    TestStepResult,
+    TestRunRequest,
     TestStatus,
+    TestStepResult,
 )
 from backend.selenium_driver.driver import WebDriverManager
 
@@ -49,7 +50,7 @@ def run_login_test(request: TestRunRequest, shared_manager: WebDriverManager | N
     selenium_logs = []
 
     try:
-        driver = manager.create_driver()
+        manager.create_driver()
         base_url = request.base_url.rstrip("/")
 
         # ---- 步骤 1：打开登录页面 ----
@@ -163,7 +164,7 @@ def run_login_test(request: TestRunRequest, shared_manager: WebDriverManager | N
                     duration_ms=(time.time() - step_start) * 1000,
                     error_message=f"找不到登录按钮: {e}",
                 ))
-                selenium_logs.append(f"[ERROR] NoSuchElementException: 找不到登录按钮")
+                selenium_logs.append("[ERROR] NoSuchElementException: 找不到登录按钮")
 
         # ---- 步骤 5：验证登录成功 ----
         step_start = time.time()

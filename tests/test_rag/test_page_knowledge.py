@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from backend.models.page import PageElement, PageKnowledge
-from backend.rag.page_knowledge import PageKnowledgeStore, _PAGE_TTL_SECONDS
+from backend.rag.page_knowledge import _PAGE_TTL_SECONDS, PageKnowledgeStore
 
 
 class TestPageKnowledgeModel:

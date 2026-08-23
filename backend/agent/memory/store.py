@@ -7,9 +7,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from backend.config.settings import get_settings
 
@@ -31,7 +30,7 @@ class ConversationMemoryStore:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
         max_turns: int = _DEFAULT_MAX_TURNS,
         ttl_seconds: int = _DEFAULT_SESSION_TTL_SECONDS,
     ):
@@ -200,7 +199,7 @@ class ConversationMemoryStore:
 
 
 # 全局单例
-_memory_store: Optional[ConversationMemoryStore] = None
+_memory_store: ConversationMemoryStore | None = None
 
 
 def get_conversation_memory_store() -> ConversationMemoryStore:

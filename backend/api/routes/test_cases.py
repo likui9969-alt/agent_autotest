@@ -10,7 +10,6 @@ import io
 import json
 import logging
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -19,7 +18,6 @@ from backend.agent.test_generator import TestCaseGenerator
 from backend.api.deps import get_llm_client
 from backend.db.test_cases import TestCaseStore
 from backend.models.test_case import (
-    TestCase,
     TestCaseGenerateRequest,
     TestCaseGenerateResponse,
 )
@@ -28,7 +26,7 @@ logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["测试用例管理"])
 
 # 全局单例
-_test_case_store: Optional[TestCaseStore] = None
+_test_case_store: TestCaseStore | None = None
 
 
 def _get_store() -> TestCaseStore:
@@ -56,7 +54,7 @@ async def generate_test_cases(request: TestCaseGenerateRequest):
         return TestCaseGenerateResponse(
             status="failed",
             generated_count=0,
-            message=f"生成失败: {str(e)}",
+            message=f"生成失败: {e!s}",
         )
 
 
@@ -126,7 +124,7 @@ async def export_test_case(
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename = f"testcase_{case_id}.xlsx"
         except ImportError:
-            raise HTTPException(status_code=500, detail="缺少 pandas/openpyxl，无法导出 Excel")
+            raise HTTPException(status_code=500, detail="缺少 pandas/openpyxl，无法导出 Excel") from None
 
     return StreamingResponse(
         io.BytesIO(data.encode("utf-8") if isinstance(data, str) else data),
@@ -169,7 +167,7 @@ async def export_all_test_cases(
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename = f"testcases_{timestamp}.xlsx"
         except ImportError:
-            raise HTTPException(status_code=500, detail="缺少 pandas/openpyxl，无法导出 Excel")
+            raise HTTPException(status_code=500, detail="缺少 pandas/openpyxl，无法导出 Excel") from None
 
     return StreamingResponse(
         io.BytesIO(payload),

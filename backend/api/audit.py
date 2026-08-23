@@ -3,14 +3,15 @@
 记录关键操作（Agent 执行、RAG 数据变更）到独立的 audit.log 文件，
 用于安全审计和操作追溯。
 """
-import logging
 import json
-from datetime import datetime, timezone
+import logging
+from datetime import UTC, datetime
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from backend.config.settings import get_settings
 from backend.config.json_formatter import request_id_var
+from backend.config.settings import get_settings
 
 # 需要审计的路径前缀
 _AUDIT_PREFIXES = (
@@ -43,9 +44,9 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         body_bytes = await request.body()
         body_text = body_bytes.decode("utf-8", errors="replace")[:200]
 
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         response = await call_next(request)
-        elapsed_ms = (datetime.now(timezone.utc) - start_time).total_seconds() * 1000
+        elapsed_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
         # 构造审计记录
         settings = get_settings()

@@ -11,7 +11,7 @@ LLM 供应商抽象层
 """
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger("ai_rd_agent")

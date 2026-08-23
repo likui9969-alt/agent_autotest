@@ -3,13 +3,15 @@
 POST /api/v1/analysis/log          — 上传日志文件或粘贴日志内容，返回故障分析报告
 GET  /api/v1/analysis/runtime-logs — 读取后端服务最近的运行日志（无需上传文件）
 """
+import asyncio
 import logging
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, Query
+
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import JSONResponse
 
-from backend.models.analysis import LogAnalysisRequest, AnalysisResult
 from backend.api.deps import get_log_analyzer
+from backend.models.analysis import AnalysisResult, LogAnalysisRequest
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["日志分析"])
@@ -87,8 +89,12 @@ async def get_runtime_logs(
         )
 
     try:
-        with open(log_file, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
+        def _read_lines() -> list[str]:
+            with open(log_file, encoding="utf-8") as f:
+                return f.readlines()
+
+        # 日志文件可能较大，放线程池避免阻塞事件循环
+        all_lines = await asyncio.to_thread(_read_lines)
     except Exception as e:
         return JSONResponse(
             status_code=500,

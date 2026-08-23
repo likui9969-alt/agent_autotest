@@ -6,6 +6,7 @@ Token 认证中间件，采用 fail-closed 策略：
 - 未配置 API_TOKEN 且 DEBUG=True（开发模式）：放行，启动时记录警告
 """
 import logging
+
 from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 

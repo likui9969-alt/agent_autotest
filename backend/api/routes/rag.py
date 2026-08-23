@@ -10,11 +10,12 @@ DELETE /api/v1/rag/document           — 按文件名删除文档
 """
 import logging
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form
+
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
-from backend.models.rag import RAGQueryRequest, RAGQueryResponse
 from backend.api.deps import get_rag_pipeline
+from backend.models.rag import RAGQueryRequest, RAGQueryResponse
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["智能问答"])
@@ -98,7 +99,7 @@ async def rag_ingest(
             status_code=500,
             content={
                 "error": True,
-                "message": f"文件索引失败: {str(e)}",
+                "message": f"文件索引失败: {e!s}",
             },
         )
 
@@ -145,7 +146,7 @@ async def rag_ingest_directory(
             status_code=500,
             content={
                 "error": True,
-                "message": f"目录索引失败: {str(e)}",
+                "message": f"目录索引失败: {e!s}",
             },
         )
 
@@ -175,7 +176,7 @@ async def rag_rebuild(
             status_code=500,
             content={
                 "error": True,
-                "message": f"重建失败: {str(e)}",
+                "message": f"重建失败: {e!s}",
             },
         )
 
@@ -193,7 +194,7 @@ async def rag_stats():
             status_code=500,
             content={
                 "error": True,
-                "message": f"获取统计信息失败: {str(e)}",
+                "message": f"获取统计信息失败: {e!s}",
             },
         )
 
@@ -213,7 +214,7 @@ async def rag_list_documents():
         logger.error(f"获取文档列表失败: {e}")
         return JSONResponse(
             status_code=500,
-            content={"error": True, "message": f"获取文档列表失败: {str(e)}"},
+            content={"error": True, "message": f"获取文档列表失败: {e!s}"},
         )
 
 
@@ -245,5 +246,5 @@ async def rag_delete_document(filename: str = Form(..., description="要删除�
         logger.error(f"删除文档失败: {e}")
         return JSONResponse(
             status_code=500,
-            content={"error": True, "message": f"删除文档失败: {str(e)}"},
+            content={"error": True, "message": f"删除文档失败: {e!s}"},
         )

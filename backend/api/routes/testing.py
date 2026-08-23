@@ -5,17 +5,18 @@ POST /api/v1/testing/run/async — 异步执行测试（返回 task_id）
 GET  /api/v1/testing/tasks/{task_id} — 查询异步任务状态
 POST /api/v1/testing/tasks/{task_id}/cancel — 取消异步测试任务
 """
-import logging
 import asyncio
+import logging
 import threading
 import uuid
 from typing import Any
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 
-from backend.models.testing import TestRunRequest, TestReport
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+
 from backend.agent.test_executor import TestExecutorAgent
 from backend.api.deps import get_test_executor
 from backend.db.reports import TestReportStore
+from backend.models.testing import TestReport, TestRunRequest
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["自动化测试"])

@@ -6,11 +6,8 @@ Agent Graph 端到端测试
 """
 from __future__ import annotations
 
-import pytest
-
 from backend.agent.graph import build_supervisor_graph, supervisor_router
-from backend.agent.state import AgentState
-from backend.agent.task_registry import register, cancel, unregister
+from backend.agent.task_registry import cancel, register, unregister
 
 
 class TestSupervisorGraph:

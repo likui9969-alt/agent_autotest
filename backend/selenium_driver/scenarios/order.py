@@ -2,16 +2,17 @@
 下单流程自动化测试场景
 测试目标：验证 Web 应用的下单/提交表单功能是否正常
 """
-import time
 import logging
+import time
 from datetime import datetime
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+
+from selenium.common.exceptions import TimeoutException
 
 from backend.models.testing import (
-    TestRunRequest,
     TestCaseResult,
-    TestStepResult,
+    TestRunRequest,
     TestStatus,
+    TestStepResult,
 )
 from backend.selenium_driver.driver import WebDriverManager
 
@@ -49,7 +50,7 @@ def run_order_test(request: TestRunRequest, shared_manager: WebDriverManager | N
     selenium_logs = []
 
     try:
-        driver = manager.create_driver()
+        manager.create_driver()
         base_url = request.base_url.rstrip("/")
 
         # ---- 步骤 1：打开目标页面 ----

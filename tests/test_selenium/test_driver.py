@@ -5,11 +5,8 @@ Tests for Selenium WebDriver Manager
 - Cache invalidation by version, TTL, missing file
 """
 import time
-from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
-import pytest
 
-from backend.selenium_driver.driver import _CachedDriver, _CACHE_TTL_SECONDS
+from backend.selenium_driver.driver import _CACHE_TTL_SECONDS, _CachedDriver
 
 
 class TestCachedDriver:

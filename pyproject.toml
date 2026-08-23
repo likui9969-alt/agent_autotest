@@ -8,6 +8,71 @@ version = "1.0.0"
 description = "AI-Driven 研发效能智能体"
 requires-python = ">=3.12"
 
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes（未定义名/未使用导入等真问题）
+    "I",     # import 排序
+    "B",     # bugbear 常见坑
+    "UP",    # pyupgrade 语法现代化
+    "SIM",   # 代码简化
+    "RUF",   # ruff 专属规则
+    "PIE",   # 多余占位
+    "ASYNC", # async 正确性
+    "PERF",  # 性能反模式
+    "LOG",   # logging 正确性
+    "S",     # bandit 安全
+    "DTZ",   # datetime 时区
+    "G",     # logging 格式
+    "PL",    # pylint 子集
+    "BLE",   # blind except
+]
+ignore = [
+    # ---- 以下为项目级风格决策（经评审保留），非疏漏 ----
+    "BLE001",  # Agent 链路兜底 except Exception 为设计决策，保证链路不中断
+    "DTZ005",  # 内部工具统一本地时区，无跨时区需求
+    "G201",    # 现有 logging 风格，统一改造收益低
+    "S110",    # 静默容错点均已评审（浏览器清理等 best-effort 场景）
+    "S101",    # 测试文件使用 assert（pytest 惯例）
+    "B008",    # FastAPI Depends() 函数调用作默认参数为框架惯例
+    "B017",    # 测试中 pytest.raises(Exception) 刻意验证兜底行为
+    "PLW1510", # subprocess.run 无 check，外层已有错误处理
+    "PLR0913", # Agent 工具签名参数多为自描述配置，不强行拆分
+    "PLR2004", # 测试中的魔法数字阈值（超时秒数等）自解释
+    # ---- 中文项目特有噪音 ----
+    "RUF001",  # 中文文案中的全角标点（，。：）为正常现象
+    "RUF002",  # 中文 docstring 中的全角标点
+    "RUF003",  # 中文注释中的全角标点
+    "G004",    # logging f-string 为全项目统一风格
+    "PLC0415", # 函数内 import 为既有模式（避免循环依赖/懒加载）
+    # ---- 既有代码风格，逐步治理，不阻塞 CI ----
+    "E501",    # 历史长行（120+），存量较多，单独专项治理
+    "PLW0603", # 模块级单例使用 global 语句
+    "PLR0911", # 返回分支数
+    "PLR0912", # 分支数
+    "PLR0915", # 语句数
+    "PLR0917", # 位置参数数
+    "SIM105",  # contextlib.suppress 改写，纯风格
+    "ASYNC240",# async 中 Path IO（低并发内部工具可接受）
+    "S311",    # random 非加密用途（测试数据生成）
+    "S603",    # subprocess 调用已有白名单防护
+    "S607",    # 启动进程用相对路径（PATH 解析）
+    "S104",    # 绑定 0.0.0.0（本地/容器内开发服务）
+    "UP042",   # StrEnum 迁移（3.12 兼容但涉及枚举基类改动）
+    "B905",    # zip strict 参数补齐，行为无变化
+    "PERF401", # for→推导式改写涉及核心链路（graph.py 等），专项治理再动
+    "PERF402", # 同上
+]
+
+[tool.ruff.lint.per-file-ignores]
+# tests/ 中宽松处理：mock 变量与触发副作用的表达式是测试惯例
+"tests/**" = ["B018", "RUF059", "F841", "PLR0915", "S108"]
+
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]

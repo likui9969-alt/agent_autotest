@@ -11,12 +11,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from langchain_core.documents import Document
 
-from backend.rag.reranker import Reranker
-from backend.rag.pipeline import RAGPipeline
 from backend.models.rag import RAGQueryRequest
+from backend.rag.pipeline import RAGPipeline
+from backend.rag.reranker import Reranker
 
 
 def _make_docs(n: int, prefix: str = "文档") -> list[Document]:

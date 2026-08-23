@@ -5,15 +5,12 @@ Tests for LLM Module
 - Prompt templates: formatting, variable injection
 - Retry mechanism: exponential backoff
 """
-from unittest.mock import patch, MagicMock, ANY
+from unittest.mock import ANY, MagicMock, patch
+
 import httpx
 import pytest
 from openai import (
     APIStatusError,
-    APITimeoutError,
-    APIConnectionError,
-    InternalServerError,
-    RateLimitError,
 )
 
 from backend.llm.client import LLMClient

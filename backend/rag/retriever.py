@@ -5,12 +5,12 @@ MMR 优先使用 numpy 加速余弦相似度计算，不可用时回退到纯 Py
 """
 import logging
 import math
-from typing import Callable
+
 from langchain_core.documents import Document
 
 from backend.config.settings import get_settings
-from backend.rag.vector_store import VectorStore
 from backend.rag.embeddings import EmbeddingGenerator
+from backend.rag.vector_store import VectorStore
 
 logger = logging.getLogger("ai_rd_agent")
 

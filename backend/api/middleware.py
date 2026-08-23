@@ -2,8 +2,9 @@
 FastAPI 中间件模块
 提供请求日志记录、耗时统计等功能
 """
-import time
 import logging
+import time
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 

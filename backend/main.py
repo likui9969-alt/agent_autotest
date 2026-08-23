@@ -10,16 +10,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
 
-from backend.config.settings import get_settings
-from backend.config.logging_config import setup_logging
-from backend.config.json_formatter import request_id_var
-from backend.api.middleware import RequestLoggingMiddleware
 from backend.api.audit import AuditLogMiddleware
-from backend.api.exceptions import register_exception_handlers
 from backend.api.auth import AuthMiddleware
+from backend.api.exceptions import register_exception_handlers
+from backend.api.middleware import RequestLoggingMiddleware
 from backend.api.routes import register_routes
+from backend.config.json_formatter import request_id_var
+from backend.config.logging_config import setup_logging
+from backend.config.settings import get_settings
 
 # ---- 初始化配置（使用标准 logger，lifespan 中替换为配置版本） ----
 settings = get_settings()
@@ -86,9 +86,9 @@ app.add_middleware(RequestLoggingMiddleware)
 if settings.RATE_LIMIT_ENABLED:
     try:
         from slowapi import Limiter, _rate_limit_exceeded_handler
-        from slowapi.util import get_remote_address
-        from slowapi.middleware import SlowAPIMiddleware
         from slowapi.errors import RateLimitExceeded
+        from slowapi.middleware import SlowAPIMiddleware
+        from slowapi.util import get_remote_address
 
         limiter = Limiter(
             key_func=get_remote_address,

@@ -3,22 +3,23 @@ Agent 执行路由 — LangGraph Supervisor + ReAct 循环
 POST /api/v1/agent/execute      — 执行 Agent 任务（异步）
 POST /api/v1/agent/execute/stream — 执行 Agent 任务（SSE 流式，实时展示推理过程）
 """
-import logging
-import json
-import uuid
 import asyncio
+import json
+import logging
+import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend.agent.graph import get_supervisor_graph
-from backend.agent.state import AgentState
 from backend.agent.memory import (
     SessionMemoryManager,
     get_conversation_memory_store,
 )
-from backend.agent.task_registry import register, cancel, unregister, is_cancelled
+from backend.agent.state import AgentState
+from backend.agent.task_registry import cancel, is_cancelled, register, unregister
 from backend.config.settings import get_settings
 from backend.db.reports import TestReportStore
 
@@ -170,7 +171,7 @@ async def execute_agent(request: AgentExecuteRequest):
             ),
             timeout=timeout,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(f"[Agent API {task_id}] 执行超时 (>{timeout}s)")
         return AgentExecuteResponse(
             task_id=task_id,
@@ -186,7 +187,7 @@ async def execute_agent(request: AgentExecuteRequest):
         return AgentExecuteResponse(
             task_id=task_id,
             task_type="error",
-            final_response=f"Agent 执行失败: {str(e)}",
+            final_response=f"Agent 执行失败: {e!s}",
             tool_calls_made=0,
             iterations=0,
             execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
@@ -375,9 +376,9 @@ async def execute_agent_stream(request: AgentExecuteRequest):
                     "time_ms": (datetime.now() - start_time).total_seconds() * 1000,
                 })
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"[Agent SSE {task_id}] 执行超时")
-            yield _sse_event("error", {"message": f"执行超时（超过设置时间）"})
+            yield _sse_event("error", {"message": "执行超时（超过设置时间）"})
 
         except Exception as e:
             logger.error(f"[Agent SSE {task_id}] 错误: {e}", exc_info=True)
@@ -488,7 +489,7 @@ async def clear_memory(request: MemoryClearRequest):
         return MemoryClearResponse(
             session_id=request.session_id,
             cleared=False,
-            message=f"清空失败: {str(e)}",
+            message=f"清空失败: {e!s}",
         )
 
 

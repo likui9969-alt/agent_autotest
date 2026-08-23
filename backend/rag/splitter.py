@@ -3,8 +3,10 @@
 使用 RecursiveCharacterTextSplitter 对文档进行语义感知的切割
 """
 import logging
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from backend.config.settings import get_settings
 
 logger = logging.getLogger("ai_rd_agent")

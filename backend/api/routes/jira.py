@@ -3,11 +3,12 @@ JIRA 集成路由
 POST /api/v1/jira/create — 自动创建 JIRA 缺陷单
 """
 import logging
+
 from fastapi import APIRouter, Depends
 
-from backend.models.jira import JiraCreateRequest, JiraCreateResponse
 from backend.agent.jira_creator import JiraCreator
 from backend.api.deps import get_jira_creator
+from backend.models.jira import JiraCreateRequest, JiraCreateResponse
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["JIRA集成"])

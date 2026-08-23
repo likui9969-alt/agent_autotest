@@ -3,7 +3,8 @@
 使用阿里云百炼的 Embedding 模型将文本转换为向量
 """
 import logging
-from typing import Iterator
+from collections.abc import Iterator
+
 from backend.llm.client import LLMClient
 
 logger = logging.getLogger("ai_rd_agent")

@@ -10,7 +10,6 @@ import logging
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
@@ -42,7 +41,7 @@ class TestCaseGenerator:
         ))
     """
 
-    def __init__(self, llm_client: Optional[LLMClient] = None):
+    def __init__(self, llm_client: LLMClient | None = None):
         if llm_client:
             self.llm_client = llm_client
         else:

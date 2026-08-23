@@ -3,21 +3,24 @@ Selenium WebDriver 管理器模块
 提供 Chrome WebDriver 的创建、配置和生命周期管理
 """
 import logging
-import re
 import os
-import sys
+import re
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import (
+    SessionNotCreatedException,
+    TimeoutException,
+)
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, SessionNotCreatedException
+from selenium.webdriver.support.ui import WebDriverWait
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -48,9 +51,7 @@ class _CachedDriver:
             return False
         if chrome_version is not None and self.version is not None and self.version != chrome_version:
             return False
-        if time.time() - self.cached_at > _CACHE_TTL_SECONDS:
-            return False
-        return True
+        return time.time() - self.cached_at <= _CACHE_TTL_SECONDS
 
 
 # 全局缓存：selenium-manager 自动下载的 chromedriver 路径
@@ -65,7 +66,6 @@ def _find_cached_chromedriver() -> str:
     如果能找到，直接返回路径，避免重复调用 selenium-manager。
     """
     import os
-    import glob
     from pathlib import Path
 
     # selenium-manager 缓存目录
@@ -235,7 +235,7 @@ def _get_chrome_major_version(chrome_binary: str = "") -> int | None:
             pref_path = os.path.join(lad, "Google", "Chrome", "User Data", "Local State")
             if os.path.exists(pref_path):
                 import json
-                with open(pref_path, "r", encoding="utf-8") as f:
+                with open(pref_path, encoding="utf-8") as f:
                     state = json.load(f)
                 ver = state.get("user_experience_metrics", {}).get("stability", {}).get("browser_version", "")
                 if ver:
@@ -726,7 +726,6 @@ class WebDriverManager:
         Returns:
             截图文件的完整路径
         """
-        from pathlib import Path
         from backend.config.settings import PROJECT_ROOT
 
         screenshot_dir = PROJECT_ROOT / "data" / "screenshots"

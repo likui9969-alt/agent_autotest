@@ -9,22 +9,20 @@
 4. 调用 LLM 生成综合分析报告
 5. 返回结构化分析结果
 """
-import re
 import logging
+import re
 import uuid
 
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
-from backend.rag.retriever import Retriever
-from backend.rag.embeddings import EmbeddingGenerator
-from backend.rag.vector_store import VectorStore
 from backend.models.analysis import (
-    LogAnalysisRequest,
+    KNOWN_EXCEPTIONS,
     AnalysisResult,
     ExceptionInfo,
     HistoricalCase,
-    KNOWN_EXCEPTIONS,
+    LogAnalysisRequest,
 )
+from backend.rag.retriever import Retriever
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -84,8 +82,6 @@ class LogAnalyzer:
             logger.info(f"  检索到 {len(historical_cases)} 个历史案例")
 
         # ---- 步骤 3：构建分析 Prompt 并调用 LLM ----
-        # 格式化异常信息为文本
-        exceptions_text = self._format_exceptions(exceptions)
         historical_text = self._format_historical_cases(historical_cases)
 
         template = get_template("log_analysis")

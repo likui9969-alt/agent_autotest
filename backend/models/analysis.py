@@ -3,8 +3,8 @@
 包含日志上传、分析请求/响应、异常模式等
 """
 from datetime import datetime
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==================== 请求模型 ====================
 

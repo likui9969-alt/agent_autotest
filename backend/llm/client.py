@@ -6,20 +6,25 @@
 import logging
 import random
 import time
-from typing import Iterator, Callable, TypeVar
+from collections.abc import Callable, Iterator
+from typing import TypeVar
 
 import httpx
 from openai import (
-    RateLimitError,
-    APITimeoutError,
     APIConnectionError,
-    InternalServerError,
     APIStatusError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
 )
 
 from backend.config.settings import get_settings
-from backend.llm.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError, CircuitBreakerConfig
-from backend.llm.providers import create_provider, BaseLLMProvider
+from backend.llm.circuit_breaker import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitBreakerOpenError,
+)
+from backend.llm.providers import BaseLLMProvider, create_provider
 
 T = TypeVar("T")
 logger = logging.getLogger("ai_rd_agent")
@@ -39,9 +44,7 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, APIStatusError):
         return exc.status_code not in _NON_RETRYABLE_STATUSES
     # httpx 传输层错误
-    if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError)):
-        return True
-    return False
+    return isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError))
 
 
 class LLMClient:

@@ -5,23 +5,24 @@ GET    /api/v1/knowledge/stats       — 查看知识库统计
 POST   /api/v1/knowledge/rebuild     — 重建向量库
 POST   /api/v1/knowledge/incremental — 增量索引目录
 """
-import os
 import logging
+import os
 import tempfile
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Depends
+
+from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import JSONResponse
 
+from backend.api.deps import get_rag_pipeline
 from backend.config.settings import get_settings
 from backend.models.knowledge import (
+    DocumentItem,
+    DocumentListResponse,
     DocumentUploadResponse,
+    IncrementalIndexResponse,
     KnowledgeBaseStats,
     RebuildResponse,
-    IncrementalIndexResponse,
-    DocumentListResponse,
-    DocumentItem,
 )
-from backend.api.deps import get_rag_pipeline
 from backend.rag.page_knowledge import get_page_knowledge_store
 
 logger = logging.getLogger("ai_rd_agent")
@@ -117,7 +118,7 @@ async def upload_document(
         final_path.unlink(missing_ok=True)
         return JSONResponse(
             status_code=500,
-            content={"error": True, "message": f"文档索引失败: {str(e)}"},
+            content={"error": True, "message": f"文档索引失败: {e!s}"},
         )
 
     return DocumentUploadResponse(
@@ -167,7 +168,7 @@ async def rebuild_knowledge_base():
         logger.error(f"重建向量库失败: {e}", exc_info=True)
         return RebuildResponse(
             status="failed",
-            message=f"重建失败: {str(e)}",
+            message=f"重建失败: {e!s}",
         )
 
 
@@ -198,7 +199,7 @@ async def incremental_index_knowledge_base():
         logger.error(f"增量索引失败: {e}", exc_info=True)
         return IncrementalIndexResponse(
             status="failed",
-            message=f"增量索引失败: {str(e)}",
+            message=f"增量索引失败: {e!s}",
         )
 
 

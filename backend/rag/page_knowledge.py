@@ -9,10 +9,8 @@ import hashlib
 import json
 import logging
 import sqlite3
-import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from backend.config.settings import get_settings
 from backend.models.page import PageKnowledge
@@ -31,7 +29,7 @@ class PageKnowledgeStore:
     保存向量化的页面摘要，支持按 URL 快速查找和语义检索。
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         settings = get_settings()
         if db_path:
             self._db_path = Path(db_path)
@@ -75,7 +73,7 @@ class PageKnowledgeStore:
         from backend.api.deps import get_rag_pipeline
         return get_rag_pipeline().embedder
 
-    def get_by_url(self, url: str) -> Optional[PageKnowledge]:
+    def get_by_url(self, url: str) -> PageKnowledge | None:
         """按 URL 读取页面知识"""
         with self._connect() as conn:
             row = conn.execute(
@@ -205,11 +203,12 @@ class PageKnowledgeStore:
 
     @staticmethod
     def _compute_hash(text: str) -> str:
-        return hashlib.md5(text.encode("utf-8")).hexdigest()
+        # 非加密用途：内容指纹用于变更检测，md5 足够且更快
+        return hashlib.md5(text.encode("utf-8")).hexdigest()  # noqa: S324
 
 
 # 全局单例
-_page_store: Optional[PageKnowledgeStore] = None
+_page_store: PageKnowledgeStore | None = None
 
 
 def get_page_knowledge_store() -> PageKnowledgeStore:
@@ -223,4 +222,5 @@ def get_page_knowledge_store() -> PageKnowledgeStore:
 def compute_page_hash(page_info: dict) -> str:
     """根据页面信息计算稳定哈希"""
     content = json.dumps(page_info, sort_keys=True, ensure_ascii=False)
-    return hashlib.md5(content.encode("utf-8")).hexdigest()
+    # 非加密用途：页面结构指纹用于缓存命中判断
+    return hashlib.md5(content.encode("utf-8")).hexdigest()  # noqa: S324

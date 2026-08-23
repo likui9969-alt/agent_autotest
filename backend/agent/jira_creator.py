@@ -3,10 +3,14 @@ JIRA 缺陷创建 Agent 模块
 根据故障分析结果自动生成并创建 JIRA 缺陷单
 """
 import logging
+from typing import ClassVar
+
+import httpx
+
+from backend.config.settings import get_settings
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
 from backend.models.jira import JiraCreateRequest, JiraCreateResponse
-from backend.config.settings import get_settings
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -68,7 +72,7 @@ class JiraCreator:
             logger.error(f"JIRA API 调用失败: {e}", exc_info=True)
             return JiraCreateResponse(
                 status="failed",
-                message=f"JIRA 创建失败: {str(e)}",
+                message=f"JIRA 创建失败: {e!s}",
             )
 
     def _refine_with_llm(self, request: JiraCreateRequest) -> str | None:
@@ -99,8 +103,6 @@ class JiraCreator:
         Returns:
             {"status": "connected" | "unconfigured" | "failed", "message": str}
         """
-        import httpx
-
         if not self.settings.JIRA_URL:
             return {
                 "status": "unconfigured",
@@ -130,11 +132,11 @@ class JiraCreator:
         except Exception as e:
             return {
                 "status": "failed",
-                "message": f"连接失败: {str(e)}",
+                "message": f"连接失败: {e!s}",
             }
 
     # 类级缓存：项目可用的 issue type 名称（避免每次建单都查 createmeta）
-    _issue_type_cache: dict[str, str] = {}
+    _issue_type_cache: ClassVar[dict[str, str]] = {}
 
     # issue type 候选优先级（兼容中英文模板的 team-managed / company-managed 项目）
     _ISSUE_TYPE_CANDIDATES = ("Bug", "故障", "任务", "Task", "Story", "故事")
@@ -195,8 +197,6 @@ class JiraCreator:
         2. priority/labels 字段被项目拒绝时自动剔除重试（team-managed
            项目可能未启用这些字段，400 errors 会指明字段名）
         """
-        import httpx
-
         jira_url = self.settings.JIRA_URL.rstrip("/")
         api_url = f"{jira_url}/rest/api/2/issue"
 

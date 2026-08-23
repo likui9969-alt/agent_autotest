@@ -6,7 +6,7 @@ JSON 结构化日志格式化器
 import json
 import logging
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # 请求 ID 上下文变量，在中间件中设置
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
@@ -27,7 +27,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict = {
-            "@timestamp": datetime.now(timezone.utc).isoformat(),
+            "@timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "module": f"{record.module}:{record.lineno}",

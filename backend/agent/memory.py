@@ -133,8 +133,6 @@ class SessionMemoryManager:
         Returns:
             ConversationMemory 实例
         """
-        now = time.time()
-
         # 清理过期会话（每获取一次清理一批）
         self._evict_expired()
 

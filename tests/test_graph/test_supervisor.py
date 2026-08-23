@@ -6,23 +6,22 @@ Tests for LangGraph Supervisor Graph
 - ReAct loop control
 - Forced end on max iterations
 """
-from unittest.mock import patch, MagicMock
 import pytest
 
 from backend.agent.graph import (
-    supervisor_node,
-    supervisor_router,
-    make_react_reason_node,
-    make_react_router,
+    MAX_REACT_ITERATIONS,
+    _format_forced_end,
+    _tools_to_openai_schema,
     after_tools_router,
     execute_tools_node,
     format_output_node,
-    _format_forced_end,
-    _tools_to_openai_schema,
-    MAX_REACT_ITERATIONS,
+    make_react_reason_node,
+    make_react_router,
+    supervisor_node,
+    supervisor_router,
 )
 from backend.agent.tools import ALL_TOOLS
-from tests.conftest import make_supervisor_state, make_react_state
+from tests.conftest import make_react_state, make_supervisor_state
 
 
 class TestSupervisorNode:

@@ -6,17 +6,17 @@ import logging
 import uuid
 from datetime import datetime
 
-from backend.models.testing import (
-    TestRunRequest,
-    TestReport,
-    TestCaseResult,
-    TestStepResult,
-    TestStatus,
-    TestScenario,
-    CustomScenario,
-)
 from backend.agent.log_analyzer import LogAnalyzer
 from backend.models.analysis import LogAnalysisRequest
+from backend.models.testing import (
+    CustomScenario,
+    TestCaseResult,
+    TestReport,
+    TestRunRequest,
+    TestScenario,
+    TestStatus,
+    TestStepResult,
+)
 
 logger = logging.getLogger("ai_rd_agent")
 
@@ -179,8 +179,8 @@ class TestExecutorAgent:
             if use_mock:
                 from backend.selenium_driver.scenarios.mock_scenarios import (
                     run_mock_login_test,
-                    run_mock_search_test,
                     run_mock_order_test,
+                    run_mock_search_test,
                 )
                 scenario_map = {
                     TestScenario.LOGIN: run_mock_login_test,
@@ -189,8 +189,8 @@ class TestExecutorAgent:
                 }
             else:
                 from backend.selenium_driver.scenarios.login import run_login_test
-                from backend.selenium_driver.scenarios.search import run_search_test
                 from backend.selenium_driver.scenarios.order import run_order_test
+                from backend.selenium_driver.scenarios.search import run_search_test
                 scenario_map = {
                     TestScenario.LOGIN: run_login_test,
                     TestScenario.SEARCH: run_search_test,
@@ -262,7 +262,6 @@ class TestExecutorAgent:
         Returns:
             用例执行结果
         """
-        from backend.models.testing import CustomScenario  # noqa: F811
 
         logger.info(f"  执行自定义场景: {scenario.name} ({len(scenario.steps)} 步)")
 
@@ -342,4 +341,4 @@ class TestExecutorAgent:
             )
         except Exception as e:
             logger.warning(f"失败分析异常: {e}")
-            return f"[{result.scenario}] 分析失败: {str(e)}"
+            return f"[{result.scenario}] 分析失败: {e!s}"

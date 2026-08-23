@@ -5,8 +5,6 @@ LoopDetector 单元测试
 """
 from __future__ import annotations
 
-import pytest
-
 from backend.agent.loop_detector import LoopDetector
 
 

@@ -5,6 +5,7 @@ Chroma 向量存储封装模块
 import logging
 import uuid
 from pathlib import Path
+
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from langchain_core.documents import Document

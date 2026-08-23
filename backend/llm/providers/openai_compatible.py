@@ -5,7 +5,7 @@ DashScope、Ollama、OpenAI 原生均兼容 OpenAI SDK，
 统一在此基类实现，子类只需提供 api_key、base_url、model。
 """
 import logging
-from typing import Iterator
+from collections.abc import Iterator
 
 import httpx
 from openai import OpenAI

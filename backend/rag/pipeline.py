@@ -7,27 +7,26 @@ import logging
 import time
 from pathlib import Path
 
+from backend.api.deps import get_llm_client
 from backend.config.settings import get_settings
-from backend.rag.loader import DocumentLoader, SUPPORTED_EXTENSIONS
-from backend.rag.splitter import TextSplitter
-from backend.rag.embeddings import EmbeddingGenerator
-from backend.rag.vector_store import VectorStore
-from backend.rag.retriever import Retriever
-from backend.rag.reranker import Reranker
 from backend.llm.client import LLMClient
 from backend.llm.prompts import get_template
 from backend.models.rag import RAGQueryRequest, RAGQueryResponse, SourceCitation
-
-from backend.api.deps import get_llm_client
+from backend.rag.embeddings import EmbeddingGenerator
+from backend.rag.loader import SUPPORTED_EXTENSIONS, DocumentLoader
+from backend.rag.reranker import Reranker
+from backend.rag.retriever import Retriever
+from backend.rag.splitter import TextSplitter
+from backend.rag.vector_store import VectorStore
 
 logger = logging.getLogger("ai_rd_agent")
 
 
 def _compute_file_hash(file_path: str) -> str:
-    """计算文件内容的 MD5 hash"""
+    """计算文件内容指纹（非加密用途：索引去重/变更检测）"""
     try:
         with open(file_path, "rb") as f:
-            return hashlib.md5(f.read()).hexdigest()
+            return hashlib.md5(f.read()).hexdigest()  # noqa: S324
     except Exception:
         return ""
 

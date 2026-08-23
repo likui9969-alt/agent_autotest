@@ -3,8 +3,8 @@ RAG 检索问答相关数据模型
 包含查询请求、检索结果、引用来源等
 """
 from datetime import datetime
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==================== 请求模型 ====================
 
