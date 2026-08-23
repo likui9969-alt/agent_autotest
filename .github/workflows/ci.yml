@@ -25,7 +25,7 @@ jobs:
           pip install ruff mypy
 
       - name: Ruff lint
-        run: ruff check backend/ tests/ --output-format=github || true
+        run: ruff check backend/ tests/ --output-format=github
 
   test:
     runs-on: ubuntu-latest
@@ -64,11 +64,11 @@ jobs:
         run: |
           python -m pytest tests/test_selenium/test_driver.py -v --tb=short
 
-      - name: Upload coverage
-        if: always()
+      - name: Run coverage
         run: |
-          python -m pytest tests/ -m "not slow" --cov=backend --cov-report=xml \
-            -W ignore::DeprecationWarning --ignore=tests/test_selenium || true
+          python -m pytest tests/ -m "not slow" --cov=backend \
+            --cov-report=xml --cov-fail-under=50 \
+            -W ignore::DeprecationWarning --ignore=tests/test_selenium
       - uses: actions/upload-artifact@v4
         if: always()
         with:

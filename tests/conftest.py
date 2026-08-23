@@ -111,6 +111,8 @@ def mock_settings():
     settings.CHUNK_OVERLAP = 200
     settings.RETRIEVER_TOP_K = 5
     settings.CHROMA_PERSIST_DIR = ""
+    settings.RERANK_ENABLED = True
+    settings.RERANK_CANDIDATE_K = 10
 
     # Selenium
     settings.CHROMEDRIVER_PATH = ""

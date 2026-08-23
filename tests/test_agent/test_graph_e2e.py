@@ -61,3 +61,49 @@ class TestTaskCancellation:
         assert "取消" in result["final_response"]
 
         unregister(task_id)
+
+
+class TestToolCallsNoReplay:
+    """回归：tool_calls 必须是替换语义 — 每轮只执行本轮工具调用，禁止重放历史。
+
+    事故背景（2026-08-23 app.log 8c57f5f1）：tool_calls 曾为 operator.add
+    累积语义，第 2 轮 ReAct 重放第 1 轮的 explore_website，导致百度页面
+    被重复打开两次。修复：state.py 中 tool_calls 改为普通替换语义。
+    """
+
+    def test_each_round_executes_only_current_calls(self, mock_llm_client):
+        """两轮 ReAct 各决定 1 个工具 → 每个工具各执行 1 次（共 2 次），不重放"""
+        from unittest.mock import patch
+
+        from tests.conftest import make_supervisor_state
+
+        # Supervisor 分类 → test_execution
+        mock_llm_client.chat.return_value = "test_execution"
+
+        # ReAct 轮次序列：轮1 工具A → 轮2 工具B → 轮3 最终回答
+        mock_llm_client.chat_with_tools.side_effect = [
+            {"content": "", "tool_calls": [{"name": "probe_tool_a", "args": {}, "id": "a1"}]},
+            {"content": "", "tool_calls": [{"name": "probe_tool_b", "args": {}, "id": "b1"}]},
+            {"content": "测试完成", "tool_calls": None},
+        ]
+
+        executed = []
+
+        def make_probe(tag):
+            def invoke(args):
+                executed.append(tag)
+                return f"工具{tag}结果"
+            return type(f"Probe{tag.upper()}", (), {"invoke": staticmethod(invoke)})()
+
+        import backend.agent.tools as tools_module
+
+        with patch.dict(
+            tools_module.TOOLS_BY_NAME,
+            {"probe_tool_a": make_probe("a"), "probe_tool_b": make_probe("b")},
+        ):
+            graph = build_supervisor_graph()
+            result = graph.invoke(make_supervisor_state("执行测试"))
+
+        assert result["final_response"] == "测试完成"
+        # 修复前（累积语义）为 ["a", "a", "b"]——第 2 轮重放工具 a
+        assert executed == ["a", "b"]

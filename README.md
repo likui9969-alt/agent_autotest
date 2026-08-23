@@ -14,9 +14,9 @@
 
 核心能力：
 - 管理测试知识库（日志、缺陷单、技术文档），支持上传、检索、增量索引
-- 基于 RAG 的智能问答，显示引用来源和相关度分数
+- 基于 RAG 的智能问答：召回-重排两阶段检索（向量召回 top10 → LLM 精排取 top3），显示引用来源和相关度分数
 - LangGraph 多 Agent 协作：日志分析 → 循环检测 → 测试生成 → JIRA 创建，全链路自动执行
-- LLM 多 Provider 支持：DashScope / OpenAI / Ollama，可配置回退链
+- LLM 多 Provider 支持：DashScope / OpenAI / Ollama，可配置回退链（重试 + 熔断器保护）
 - Selenium 自动化测试 + AI 失败分析 + 测试用例自动生成
 
 ---
@@ -43,9 +43,9 @@
 │           │                          │         │            │
 │  ┌────────▼────┐  ┌─────────────────▼┐  ┌────▼─────┐      │
 │  │   RAG 管线   │  │  Selenium 引擎    │  │ JIRA API │      │
-│  │ Chroma 向量库│  │  场景: 登录/搜索/  │  │          │      │
-│  └─────────────┘  │  下单/自定义       │  └──────────┘      │
-│                   └──────────────────┘                     │
+│  │ 召回→LLM重排 │  │  场景: 登录/搜索/  │  │          │      │
+│  │ Chroma 向量库│  │  下单/自定义       │  └──────────┘      │
+│  └─────────────┘  └──────────────────┘                     │
 │                                                             │
 │  LLM: DashScope / OpenAI / Ollama （可配置回退）             │
 └─────────────────────────────────────────────────────────────┘
@@ -128,7 +128,7 @@ docker-compose -f docker/docker-compose.yml down
 ## 项目结构
 
 ```
-agentone_test/
+agent_autotest/
 ├── backend/
 │   ├── main.py                 # FastAPI 入口
 │   ├── config/                 # 配置管理（Pydantic Settings）
@@ -194,7 +194,9 @@ agentone_test/
 | GET | `/api/v1/test-cases/{id}` | 测试用例详情 |
 | DELETE | `/api/v1/test-cases/{id}` | 删除测试用例 |
 | GET | `/api/v1/test-cases/export/csv` | 导出 CSV |
-| POST | `/api/v1/agent/run` | LangGraph Agent 执行 |
+| POST | `/api/v1/agent/execute` | LangGraph Agent 执行（非流式） |
+| POST | `/api/v1/agent/execute/stream` | Agent 执行（SSE 流式，逐节点推送推理过程） |
+| GET | `/api/v1/jira/status` | JIRA 连接状态 |
 | POST | `/api/v1/jira/create` | 创建 JIRA 缺陷单 |
 
 ---

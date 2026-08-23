@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "agentone_test"
+name = "agent_autotest"
 version = "1.0.0"
 description = "AI-Driven 研发效能智能体"
 requires-python = ">=3.12"
