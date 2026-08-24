@@ -301,6 +301,7 @@ def execute_tools_node(state: AgentState) -> dict:
         tool_args = tc.get("args", {})
         tool_id = tc.get("id", "")
         duration_ms = 0.0
+        success = False
 
         # 查找工具
         from backend.agent.tools import TOOLS_BY_NAME
@@ -317,6 +318,8 @@ def execute_tools_node(state: AgentState) -> dict:
                 result = tool_fn.invoke(tool_args)
                 duration_ms = (time.time() - started) * 1000
                 output = str(result)
+                # 工具执行正常返回，但内容以错误标记开头（如 SSRF 拦截、参数校验失败）视为业务失败
+                success = not output.startswith(("错误", "工具执行失败"))
                 logger.info(f"[ToolExecutor] {tool_name} 完成 ({len(output)} 字符, {duration_ms:.0f}ms)")
             except Exception as e:
                 duration_ms = (time.time() - started) * 1000
@@ -328,6 +331,7 @@ def execute_tools_node(state: AgentState) -> dict:
             "tool_name": tool_name,
             "output": output[:4000],  # 限制长度
             "duration_ms": round(duration_ms, 1),
+            "success": success,
         })
 
     # 构建观察消息

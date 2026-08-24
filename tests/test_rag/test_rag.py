@@ -132,19 +132,55 @@ class TestDocumentLoader:
 
         assert len(docs) == 3  # .txt × 2 + .md × 1
 
-    def test_overly_large_file(self, tmp_path):
-        """超过大小限制的文件应抛 ValueError"""
+    def test_overly_large_text_file_truncated(self, tmp_path):
+        """文本类文件超过上限但低于截断阈值时应截断索引而非拒绝"""
         loader = DocumentLoader()
-        # loader.MAX_FILE_SIZE = 10MB
         large_file = tmp_path / "large.txt"
-        # mock 文件大小为 11MB
-        with patch("backend.rag.loader.Path.stat") as mock_stat:
-            stat_result = MagicMock()
-            stat_result.st_size = 11 * 1024 * 1024  # 11MB
-            mock_stat.return_value = stat_result
+        large_file.write_text("A" * 250, encoding="utf-8")
 
-            with pytest.raises(ValueError, match="文件过大"):
-                loader.load(str(large_file))
+        # 缩小阈值便于测试：MAX=100B / TRUNCATE=1KB，文件 250B 走截断
+        with patch.object(DocumentLoader, "MAX_FILE_SIZE", 100), \
+             patch.object(DocumentLoader, "TRUNCATE_THRESHOLD", 1024):
+            docs = loader.load(str(large_file))
+
+        assert len(docs) == 1
+        assert docs[0].metadata["truncated"] is True
+        assert "仅索引前" in docs[0].page_content
+
+    def test_overly_large_file_rejected(self, tmp_path):
+        """超过截断阈值的文件应抛 ValueError（不无限截断）"""
+        loader = DocumentLoader()
+        large_file = tmp_path / "large.txt"
+        large_file.write_text("A" * 250, encoding="utf-8")
+
+        # MAX=100B / TRUNCATE=200B，文件 250B 超过阈值 → 拒绝
+        with patch.object(DocumentLoader, "MAX_FILE_SIZE", 100), \
+             patch.object(DocumentLoader, "TRUNCATE_THRESHOLD", 200), \
+             pytest.raises(ValueError, match="文件过大"):
+            loader.load(str(large_file))
+
+    def test_overly_large_binary_rejected(self, tmp_path):
+        """二进制格式（pdf）超限应直接拒绝（无法部分解析）"""
+        loader = DocumentLoader()
+        large_pdf = tmp_path / "large.pdf"
+        large_pdf.write_bytes(b"%PDF-1.4\n" + b"A" * 250)
+
+        with patch.object(DocumentLoader, "MAX_FILE_SIZE", 100), \
+             patch.object(DocumentLoader, "TRUNCATE_THRESHOLD", 1024), \
+             pytest.raises(ValueError, match="文件过大"):
+            loader.load(str(large_pdf))
+
+    def test_gb2312_encoding_fallback(self, tmp_path):
+        """GB2312 编码文件应自动检测回退解码，中文不乱码"""
+        loader = DocumentLoader()
+        gb_file = tmp_path / "gb_log.txt"
+        gb_file.write_bytes("登录超时通常由网络延迟引起".encode("gb2312"))
+
+        docs = loader.load(str(gb_file))
+
+        assert len(docs) == 1
+        assert "登录超时" in docs[0].page_content
+        assert docs[0].metadata["encoding"] != "utf-8"
 
     def test_pdf_loading_with_mock(self):
         """PDF 文件加载测试（mock pypdf）"""

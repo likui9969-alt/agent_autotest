@@ -59,6 +59,14 @@ class DocumentLoader:
     # 允许加载的最大文件大小（10MB），防止内存溢出
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
+    # 截断保护上限（50MB）：文本类文件超过 MAX_FILE_SIZE 但不超过该值时，
+    # 截断到 MAX_FILE_SIZE 索引并在 metadata 标记 truncated（降级可用）；
+    # 超过该值或二进制格式（pdf/docx 无法部分解析）超限时直接拒绝。
+    TRUNCATE_THRESHOLD = 50 * 1024 * 1024
+
+    # 文本类扩展名（可安全按字节截断）
+    _TEXT_EXTS = frozenset({".txt", ".md", ".csv"})
+
     def load(self, file_path: str) -> list[Document]:
         """加载单个文档文件
 
@@ -77,10 +85,19 @@ class DocumentLoader:
         # 检查文件大小
         file_size = path.stat().st_size
         if file_size > self.MAX_FILE_SIZE:
-            raise ValueError(
-                f"文件过大: {self._format_size(file_size)}，"
-                f"最大允许 {self._format_size(self.MAX_FILE_SIZE)}"
-            )
+            is_text = path.suffix.lower() in self._TEXT_EXTS
+            if is_text and file_size <= self.TRUNCATE_THRESHOLD:
+                # 文本类降级：截断索引（truncated 标记在 _load_textlike 里写入 metadata）
+                logger.warning(
+                    f"文件 {path.name} 大小 {self._format_size(file_size)} 超过 "
+                    f"{self._format_size(self.MAX_FILE_SIZE)}，截断索引前 "
+                    f"{self._format_size(self.MAX_FILE_SIZE)} 内容"
+                )
+            else:
+                raise ValueError(
+                    f"文件过大: {self._format_size(file_size)}，"
+                    f"最大允许 {self._format_size(self.MAX_FILE_SIZE)}"
+                )
 
         # 根据扩展名选择加载方式
         ext = path.suffix.lower()
@@ -189,10 +206,58 @@ class DocumentLoader:
 
     # ---- 各格式加载器 ----
 
+    # charset_normalizer 检测结果白名单：这些编码可信直接采用。
+    # cp949（韩文）等与 GB 系字节结构高度歧义，短文本下常误报，不在白名单。
+    _TRUSTED_DETECTED_ENCODINGS = frozenset({
+        "utf_8", "utf-16", "utf-16_be", "utf-16_le", "utf_16", "big5", "ascii",
+    })
+
+    def _decode_text(self, raw: bytes, filename: str) -> tuple[str, str]:
+        """解码文本字节：utf-8 → gb18030（中文主场景）→ 检测器白名单 → 容错兜底
+
+        Returns:
+            (解码文本, 实际编码名)
+        """
+        try:
+            return raw.decode("utf-8"), "utf-8"
+        except UnicodeDecodeError:
+            pass
+
+        # gb18030 是 GB2312/GBK 超集，中文文本通常可严格解码（无替换字符即为强信号）
+        try:
+            text = raw.decode("gb18030")
+            if "\ufffd" not in text:
+                return text, "gb18030"
+        except UnicodeDecodeError:
+            pass
+
+        # 检测回退（charset_normalizer 为 httpx 传递依赖，无新增安装），
+        # 结果需在白名单内（排除 cp949 等歧义误报）
+        from charset_normalizer import from_bytes
+        match = from_bytes(raw).best()
+        if match is not None and match.encoding:
+            norm = match.encoding.lower().replace("-", "_")
+            if norm in self._TRUSTED_DETECTED_ENCODINGS:
+                logger.info(f"文件 {filename} 非 UTF-8，检测到编码 {match.encoding}，自动回退解码")
+                return str(match), match.encoding
+
+        # 终极兜底：gb18030 + replace，保证可读不中断
+        logger.warning(f"文件 {filename} 编码检测失败，按 gb18030 容错解码")
+        return raw.decode("gb18030", errors="replace"), "gb18030(replace)"
+
     def _load_textlike(self, path: Path, file_type: str) -> list[Document]:
-        """加载文本类文件（.txt / .md / .csv）"""
-        with open(path, encoding="utf-8", errors="replace") as f:
-            content = f.read()
+        """加载文本类文件（.txt / .md / .csv）
+
+        - 编码：utf-8 → charset_normalizer 检测 → gb18030 容错三级回退
+        - 超大文件：超过 MAX_FILE_SIZE 的文本按字节截断到上限，metadata 标记 truncated
+        """
+        file_size = path.stat().st_size
+        truncated = file_size > self.MAX_FILE_SIZE
+
+        with open(path, "rb") as f:
+            raw = f.read(self.MAX_FILE_SIZE if truncated else -1)
+
+        content, encoding = self._decode_text(raw, path.name)
 
         # CSV 文件特殊处理：前 100 行预览 + 结构化数据标记
         if file_type == "csv":
@@ -210,14 +275,20 @@ class DocumentLoader:
                 + "\n".join(",".join(row) for row in preview_rows)
             )
 
-        return [Document(
-            page_content=content,
-            metadata={
-                "source": str(path),
-                "filename": path.name,
-                "file_type": file_type,
-            }
-        )]
+        metadata = {
+            "source": str(path),
+            "filename": path.name,
+            "file_type": file_type,
+            "encoding": encoding,
+        }
+        if truncated:
+            metadata["truncated"] = True
+            content += (
+                f"\n\n[注意: 文件超过 {self._format_size(self.MAX_FILE_SIZE)}，"
+                f"仅索引前 {self._format_size(self.MAX_FILE_SIZE)} 内容]"
+            )
+
+        return [Document(page_content=content, metadata=metadata)]
 
     def _load_pdf(self, path: Path) -> list[Document]:
         """加载 PDF 文件 — 逐页提取文本"""

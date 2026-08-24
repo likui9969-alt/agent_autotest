@@ -8,6 +8,7 @@ GET  /api/v1/rag/stats               — 知识库统计信息
 GET  /api/v1/rag/documents           — 列出知识库所有文档
 DELETE /api/v1/rag/document           — 按文件名删除文档
 """
+import hashlib
 import logging
 from pathlib import Path
 
@@ -15,10 +16,25 @@ from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from backend.api.deps import get_rag_pipeline
+from backend.cache import get_cache
 from backend.models.rag import RAGQueryRequest, RAGQueryResponse
 
 logger = logging.getLogger("ai_rd_agent")
 router = APIRouter(tags=["智能问答"])
+
+# RAG 查询缓存键前缀（知识库变更时按此前缀整体失效）
+_RAG_CACHE_PREFIX = "rag:query:"
+
+
+def _query_cache_key(request: RAGQueryRequest) -> str:
+    """查询缓存键 — 问题与检索参数共同参与哈希"""
+    raw = "|".join([
+        request.question.strip(),
+        str(request.top_k),
+        request.search_type,
+        str(request.include_sources),
+    ])
+    return _RAG_CACHE_PREFIX + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 @router.post("/query", response_model=RAGQueryResponse)
@@ -26,6 +42,7 @@ async def rag_query(request: RAGQueryRequest):
     """RAG 智能问答接口
 
     接收用户问题，检索知识库中的相关内容，交由 LLM 生成回答。
+    相同问题与检索参数在缓存 TTL 内直接返回缓存结果。
 
     请求示例：
     {
@@ -44,8 +61,27 @@ async def rag_query(request: RAGQueryRequest):
             },
         )
 
+    # 缓存命中：直接返回（知识库变更时由 ingest/rebuild/delete 失效）
+    cache = get_cache()
+    cache_key = _query_cache_key(request)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        try:
+            response = RAGQueryResponse.model_validate_json(cached)
+            logger.info(f"RAG 查询缓存命中: {request.question[:50]}...")
+            return response
+        except Exception as e:
+            # 缓存数据损坏：清除后走正常查询
+            logger.warning(f"RAG 查询缓存反序列化失败（忽略缓存）: {e}")
+
     pipeline = get_rag_pipeline()
     response = pipeline.query(request)
+
+    # 写入缓存（序列化失败不影响响应）
+    try:
+        cache.set(cache_key, response.model_dump_json())
+    except Exception as e:
+        logger.warning(f"RAG 查询缓存写入失败（忽略）: {e}")
 
     logger.info(
         f"RAG 查询完成 | 问题: {request.question[:50]}... | "
@@ -87,6 +123,8 @@ async def rag_ingest(
 
     try:
         chunk_count = pipeline.ingest_file(str(save_path))
+        # 知识库已变更：RAG 查询缓存整体失效
+        get_cache().delete_prefix(_RAG_CACHE_PREFIX)
         return {
             "status": "success",
             "filename": file.filename,
@@ -134,6 +172,8 @@ async def rag_ingest_directory(
     try:
         pipeline = get_rag_pipeline()
         total_chunks = pipeline.ingest_directory_batch(str(target_dir), batch_size=batch_size)
+        # 知识库已变更：RAG 查询缓存整体失效
+        get_cache().delete_prefix(_RAG_CACHE_PREFIX)
         return {
             "status": "success",
             "directory": str(target_dir),
@@ -166,6 +206,8 @@ async def rag_rebuild(
         pipeline = get_rag_pipeline()
         target = dir_path or None
         total_chunks = pipeline.rebuild(target)
+        # 知识库已重建：RAG 查询缓存整体失效
+        get_cache().delete_prefix(_RAG_CACHE_PREFIX)
         return {
             "status": "success",
             "chunks_indexed": total_chunks,
@@ -237,6 +279,8 @@ async def rag_delete_document(filename: str = Form(..., description="要删除�
                     "message": f"未找到文档: {filename}",
                 },
             )
+        # 知识库已变更：RAG 查询缓存整体失效
+        get_cache().delete_prefix(_RAG_CACHE_PREFIX)
         return {
             "status": "success",
             "filename": filename,

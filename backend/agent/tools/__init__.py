@@ -138,7 +138,9 @@ def parse_log_content(log_text: str) -> str:
 
     summary = f"检测到 {len(exc_list)} 个异常:\n"
     summary += json.dumps(exc_list, ensure_ascii=False, indent=2)
-    return summary
+    # PII 脱敏：异常消息可能携带用户手机号/邮箱等敏感信息
+    from backend.security.pii_filter import sanitize_pii_if_enabled
+    return sanitize_pii_if_enabled(summary)
 
 
 # ==================== 工具 3：执行测试 ====================
@@ -212,6 +214,7 @@ def run_real_test_scenario(
     base_url: str = "",
     headless: bool = True,
     timeout_seconds: int = 30,
+    sandbox: bool = False,
 ) -> str:
     """在真实 Chrome 浏览器中执行指定的自动化测试场景。
 
@@ -230,6 +233,7 @@ def run_real_test_scenario(
         base_url: 被测网站地址，留空则使用后端内置 Demo 站点
         headless: 是否使用无头模式，默认 True
         timeout_seconds: 超时时间（秒），默认 30
+        sandbox: 是否使用沙盒模式（不启动真实浏览器，仅模拟执行），默认 False
 
     Returns:
         真实浏览器测试执行结果摘要。
@@ -260,7 +264,7 @@ def run_real_test_scenario(
         headless=headless,
         timeout_seconds=timeout_seconds,
         auto_analyze=False,
-        sandbox=True,
+        sandbox=sandbox,
     )
     result = executor.run_single_scenario(sc, request)
 
@@ -271,7 +275,7 @@ def run_real_test_scenario(
     )
 
     output = f"""场景: {result.scenario}
-模式: 沙盒模式
+模式: {'沙盒模式' if sandbox else '真实浏览器'}
 状态: {result.status}
 耗时: {result.duration_ms:.0f}ms
 步骤:
@@ -373,7 +377,11 @@ def get_runtime_logs(tail_lines: int = 200, level: str = "all") -> str:
 
     # 取最后 N 行
     tail = filtered[-tail_lines:]
-    return "".join(tail) if tail else f"未找到级别为 {level_upper} 的日志。"
+    if not tail:
+        return f"未找到级别为 {level_upper} 的日志。"
+    # PII 脱敏：运行日志可能携带请求参数中的手机号/邮箱等敏感信息
+    from backend.security.pii_filter import sanitize_pii_if_enabled
+    return sanitize_pii_if_enabled("".join(tail))
 
 
 # ==================== 工具 6：系统状态诊断 ====================

@@ -61,7 +61,7 @@ class TestTaskCancellation:
 
 
 class TestToolCallsNoReplay:
-    """回归：tool_calls 必须是替换语义 — 每轮只执行本轮工具调用，禁止重放历史。
+    """回归：tool_calls 必须是替换语义 — 每轮只执行本轮工具调用，禁止重放。
 
     事故背景（2026-08-23 app.log 8c57f5f1）：tool_calls 曾为 operator.add
     累积语义，第 2 轮 ReAct 重放第 1 轮的 explore_website，导致百度页面
@@ -104,3 +104,65 @@ class TestToolCallsNoReplay:
         assert result["final_response"] == "测试完成"
         # 修复前（累积语义）为 ["a", "a", "b"]——第 2 轮重放工具 a
         assert executed == ["a", "b"]
+
+
+class TestToolResultSuccessField:
+    """execute_tools 应在 tool_results 中写入结构化 success 布尔字段。
+
+    背景（2026-08-24 P2 收口）：SSE tool_result 事件曾靠
+    output.startswith(("错误", "工具执行失败")) 中文前缀启发式判断成败，
+    理想方案是工具执行层直接写布尔字段（agents.py 优先读结构化字段）。
+    """
+
+    def _execute(self, tools_by_name, tool_calls):
+        from unittest.mock import patch
+
+        import backend.agent.tools as tools_module
+        from backend.agent.graph import execute_tools_node
+
+        with patch.dict(tools_module.TOOLS_BY_NAME, tools_by_name):
+            return execute_tools_node({"tool_calls": tool_calls, "tool_history": []})
+
+    @staticmethod
+    def _probe(output: str):
+        def invoke(args):
+            return output
+        return type("Probe", (), {"invoke": staticmethod(invoke)})()
+
+    def test_success_field_true_on_normal_output(self):
+        """工具正常返回 → success=True"""
+        result = self._execute(
+            {"probe_ok": self._probe("执行成功：找到 3 个文档")},
+            [{"name": "probe_ok", "args": {}, "id": "t1"}],
+        )
+        assert result["tool_results"][0]["success"] is True
+
+    def test_success_field_false_on_error_prefix_output(self):
+        """工具返回错误前缀文本（如 SSRF 拦截）→ success=False"""
+        result = self._execute(
+            {"probe_err": self._probe("错误: base_url 不在允许范围内")},
+            [{"name": "probe_err", "args": {}, "id": "t2"}],
+        )
+        assert result["tool_results"][0]["success"] is False
+
+    def test_success_field_false_on_exception(self):
+        """工具执行抛异常 → success=False"""
+        def boom(args):
+            raise RuntimeError("connection reset")
+        probe = type("Probe", (), {"invoke": staticmethod(boom)})()
+
+        result = self._execute(
+            {"probe_boom": probe},
+            [{"name": "probe_boom", "args": {}, "id": "t3"}],
+        )
+        assert result["tool_results"][0]["success"] is False
+        assert "工具执行失败" in result["tool_results"][0]["output"]
+
+    def test_success_field_false_on_unknown_tool(self):
+        """未注册工具 → success=False"""
+        result = self._execute(
+            {},
+            [{"name": "no_such_tool", "args": {}, "id": "t4"}],
+        )
+        assert result["tool_results"][0]["success"] is False
+        assert "未找到工具" in result["tool_results"][0]["output"]

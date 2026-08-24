@@ -15,6 +15,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - LOG_FORMAT=json
+      - CACHE_BACKEND=redis
+      - REDIS_URL=redis://redis:6379/0
     env_file:
       - ../.env
     volumes:
@@ -28,6 +30,8 @@ services:
         max-file: "3"
     depends_on:
       chroma:
+        condition: service_started
+      redis:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
@@ -80,6 +84,24 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # ==================== Redis 缓存服务（RAG 查询缓存） ====================
+  redis:
+    image: redis:7-alpine
+    container_name: ai_rd_agent_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   chroma_data:

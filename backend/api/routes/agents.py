@@ -341,10 +341,15 @@ async def execute_agent_stream(request: AgentExecuteRequest):
                     if tool_results:
                         for tr in tool_results:
                             output = str(tr.get("output", ""))
+                            # success 优先读结构化字段（graph.py execute_tools 写入），
+                            # 无字段时回退中文前缀启发式（兼容旧状态）
+                            success = tr.get("success")
+                            if success is None:
+                                success = not output.startswith(("错误", "工具执行失败"))
                             yield _sse_event("tool_result", {
                                 "tool": tr.get("tool_name", "unknown"),
                                 "duration_ms": tr.get("duration_ms", 0),
-                                "success": not output.startswith(("错误", "工具执行失败")),
+                                "success": success,
                                 # 输出摘要截断，防止 SSE 事件过大
                                 "output": output[:300],
                             })

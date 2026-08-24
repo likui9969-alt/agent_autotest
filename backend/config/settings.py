@@ -35,6 +35,23 @@ class Settings(BaseSettings):
     # 默认速率限制（每 IP），格式: "<次数>/<时间单位>"。支持 second/minute/hour/day。
     # P0 关键端点和 Agent 端点使用独立限制（见下方）。
 
+    # ==================== PII 过滤配置 ====================
+    PII_FILTER_ENABLED: bool = True
+    # 是否对流向 LLM/Agent 上下文的日志文本做 PII 脱敏（手机号/邮箱/身份证/银行卡）。
+    # 见 backend/security/pii_filter.py。
+
+    # ==================== 缓存配置 ====================
+    CACHE_ENABLED: bool = True
+    # 是否启用缓存层（RAG 查询结果缓存）。见 backend/cache/。
+    CACHE_BACKEND: str = "memory"
+    # 缓存后端："memory"（默认，无外部依赖，单进程）/ "redis"（多进程共享，连接失败自动降级 memory）
+    CACHE_TTL_SECONDS: int = 300
+    # 缓存条目存活时间（秒）
+    CACHE_MAX_SIZE: int = 1000
+    # 内存缓存最大条目数（超出按 LRU 淘汰）
+    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis 连接地址（仅 CACHE_BACKEND=redis 时使用）
+
     # ==================== Agent 执行配置 ====================
     AGENT_TIMEOUT_SECONDS: int = 120
     # Agent 单次执行超时时间（秒）。超过该时间未完成则强制终止。

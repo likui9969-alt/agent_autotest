@@ -651,3 +651,51 @@ class TestRunCustomTestSandbox:
         result, request = self._run({"sandbox": True})
         assert "不在允许范围内" not in result
         assert request.sandbox is True
+
+
+class TestRunRealTestScenarioSandbox:
+    """回归：run_real_test_scenario 的 sandbox 参数应透传到 TestRunRequest。
+
+    P2-8 挂账（2026-08-24 收口）：docstring 承诺"真实 Chrome 浏览器"但曾
+    硬编码 sandbox=True，输出还写死"模式: 沙盒模式"——名不副实。
+    修复：sandbox 参数化（默认 False），输出模式文本动态化。
+    """
+
+    @staticmethod
+    def _fake_result():
+        fake_result = MagicMock()
+        fake_result.scenario = "login"
+        fake_result.status = "passed"
+        fake_result.duration_ms = 100.0
+        fake_result.error_message = ""
+        fake_result.selenium_logs = ""
+        fake_result.steps = []
+        return fake_result
+
+    def _run(self, extra_args):
+        from backend.agent.tools import run_real_test_scenario
+
+        with patch("backend.api.deps.get_test_executor") as mock_get:
+            executor = MagicMock()
+            executor.run_single_scenario.return_value = self._fake_result()
+            mock_get.return_value = executor
+            result = run_real_test_scenario.invoke({
+                "scenario": "login",
+                **extra_args,
+            })
+        request = executor.run_single_scenario.call_args[0][1]
+        return result, request
+
+    def test_sandbox_defaults_to_real_browser(self):
+        """不传 sandbox 时默认 False（真实浏览器），与 docstring 承诺一致"""
+        result, request = self._run({})
+        assert "不在允许范围内" not in result
+        assert request.sandbox is False
+        assert "真实浏览器" in result
+
+    def test_sandbox_true_passthrough_and_label(self):
+        """显式传 sandbox=True 时透传且输出标记沙盒模式"""
+        result, request = self._run({"sandbox": True})
+        assert "不在允许范围内" not in result
+        assert request.sandbox is True
+        assert "沙盒模式" in result

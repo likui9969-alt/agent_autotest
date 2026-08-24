@@ -186,6 +186,43 @@ class TestKnowledgeEndpoints:
         assert data["total_documents"] >= 0
         assert "documents" in data
 
+    def test_knowledge_documents_pagination(self, client, tmp_path):
+        """文档列表分页：limit/offset 切片，total_documents 保持全量计数"""
+        # 准备 3 个文档的上传目录
+        upload_dir = tmp_path / "uploads"
+        upload_dir.mkdir()
+        for i in range(3):
+            (upload_dir / f"doc{i}.txt").write_text(f"content {i}", encoding="utf-8")
+
+        with patch("backend.api.routes.knowledge.get_settings") as mock_get:
+            settings = MagicMock()
+            settings.get_upload_dir.return_value = str(upload_dir)
+            mock_get.return_value = settings
+
+            # 第一页：2 条
+            r1 = client.get("/api/v1/knowledge/documents?limit=2&offset=0")
+            assert r1.status_code == 200
+            d1 = r1.json()
+            assert len(d1["documents"]) == 2
+            assert d1["total_documents"] == 3  # 全量计数不受分页影响
+
+            # 第二页：1 条
+            r2 = client.get("/api/v1/knowledge/documents?limit=2&offset=2")
+            d2 = r2.json()
+            assert len(d2["documents"]) == 1
+            assert d2["total_documents"] == 3
+
+            # 越界偏移：空列表但 total 不变
+            r3 = client.get("/api/v1/knowledge/documents?limit=2&offset=10")
+            d3 = r3.json()
+            assert d3["documents"] == []
+            assert d3["total_documents"] == 3
+
+    def test_knowledge_documents_invalid_pagination(self, client):
+        """非法分页参数（limit=0 / offset=-1）应 422"""
+        assert client.get("/api/v1/knowledge/documents?limit=0").status_code == 422
+        assert client.get("/api/v1/knowledge/documents?offset=-1").status_code == 422
+
 
 # ---- Agent 对话记忆接口 ----
 

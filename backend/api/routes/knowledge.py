@@ -10,7 +10,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from backend.api.deps import get_rag_pipeline
@@ -204,8 +204,11 @@ async def incremental_index_knowledge_base():
 
 
 @router.get("/documents", response_model=DocumentListResponse)
-async def list_knowledge_docs():
-    """获取知识库中已上传文档列表"""
+async def list_knowledge_docs(
+    limit: int = Query(100, ge=1, le=500, description="每页数量（默认 100，最大 500）"),
+    offset: int = Query(0, ge=0, description="偏移量（默认 0）"),
+):
+    """获取知识库中已上传文档列表（分页）"""
     settings = get_settings()
     upload_dir = Path(settings.get_upload_dir())
 
@@ -221,6 +224,10 @@ async def list_knowledge_docs():
                     uploaded_at="",
                 ))
 
+    # 分页：total_documents 保持全量计数，documents 按偏移切片
+    total = len(docs)
+    docs = docs[offset:offset + limit]
+
     try:
         pipeline = get_rag_pipeline()
         stats = pipeline.stats()
@@ -230,7 +237,7 @@ async def list_knowledge_docs():
 
     return DocumentListResponse(
         documents=docs,
-        total_documents=len(docs),
+        total_documents=total,
         total_chunks=total_chunks,
     )
 
