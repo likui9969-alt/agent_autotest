@@ -28,6 +28,7 @@ from backend.llm.circuit_breaker import (
     CircuitBreakerOpenError,
 )
 from backend.llm.providers import BaseLLMProvider, create_provider
+from backend.monitoring.metrics import LLM_CALL_DURATION, LLM_CALLS_TOTAL
 
 T = TypeVar("T")
 logger = logging.getLogger("ai_rd_agent")
@@ -114,11 +115,17 @@ class LLMClient:
 
     # ==================== 重试机制 ====================
 
-    def _call_with_retry(self, provider: BaseLLMProvider, fn: Callable[[BaseLLMProvider], T]) -> T:
+    def _call_with_retry(
+        self,
+        provider: BaseLLMProvider,
+        fn: Callable[[BaseLLMProvider], T],
+        operation: str = "chat",
+    ) -> T:
         """以指数退避重试执行单个 Provider 的 LLM 调用，带熔断器保护
 
         熔断器开启时快速失败（不发起网络请求）。
-        成功/失败后通知熔断器更新状态。
+        成功/失败后通知熔断器更新状态，并上报 Prometheus 调用指标
+        （按 attempt 计数，重试会累积——反映真实请求次数）。
         """
         # 熔断器检查
         if self._breaker.is_open:
@@ -132,15 +139,24 @@ class LLMClient:
 
         last_exc = None
         for attempt in range(1, max_attempts + 1):
+            start = time.perf_counter()
             try:
                 result = fn(provider)
                 self._breaker.record_success()
+                LLM_CALLS_TOTAL.labels(provider.name, operation, "success").inc()
+                LLM_CALL_DURATION.labels(provider.name, operation).observe(
+                    time.perf_counter() - start
+                )
                 return result
             except CircuitBreakerOpenError:
                 raise
             except Exception as e:
                 last_exc = e
                 self._breaker.record_failure()
+                LLM_CALLS_TOTAL.labels(provider.name, operation, "error").inc()
+                LLM_CALL_DURATION.labels(provider.name, operation).observe(
+                    time.perf_counter() - start
+                )
                 if not _is_retryable(e):
                     raise
 
@@ -160,13 +176,13 @@ class LLMClient:
 
         raise last_exc  # type: ignore[misc]
 
-    def _call(self, fn: Callable[[BaseLLMProvider], T]) -> T:
+    def _call(self, fn: Callable[[BaseLLMProvider], T], operation: str = "chat") -> T:
         """跨 Provider 调用：当前 Provider 失败后自动切换到下一个"""
         last_exc = None
         for _ in range(len(self._providers)):
             provider = self._current_provider
             try:
-                return self._call_with_retry(provider, fn)
+                return self._call_with_retry(provider, fn, operation)
             except CircuitBreakerOpenError:
                 raise
             except Exception as e:
@@ -200,15 +216,41 @@ class LLMClient:
         try:
             if stream:
                 # 流式模式下不做跨 Provider 切换（generator 延迟执行）
-                return self._current_provider.chat(
-                    messages, temperature, max_tokens, stream=True
+                provider = self._current_provider
+                return self._timed_stream(
+                    provider,
+                    provider.chat(messages, temperature, max_tokens, stream=True),
                 )
             return self._call(
-                lambda p: p.chat(messages, temperature, max_tokens, stream=False)
+                lambda p: p.chat(messages, temperature, max_tokens, stream=False),
+                operation="chat",
             )
         except Exception as e:
             logger.error(f"LLM 对话调用失败: {e}", exc_info=True)
             raise
+
+    @staticmethod
+    def _timed_stream(provider: BaseLLMProvider, gen: Iterator[str]) -> Iterator[str]:
+        """流式响应计时包装 — 消费完成/中途异常时上报调用指标
+
+        （流式响应不含 usage，Token 不在此记录，见 token_tracker 模块说明）
+        """
+
+        def _wrapped():
+            start = time.perf_counter()
+            status = "success"
+            try:
+                yield from gen
+            except Exception:
+                status = "error"
+                raise
+            finally:
+                LLM_CALL_DURATION.labels(provider.name, "chat").observe(
+                    time.perf_counter() - start
+                )
+                LLM_CALLS_TOTAL.labels(provider.name, "chat", status).inc()
+
+        return _wrapped()
 
     # ==================== 文本嵌入 ====================
 
@@ -225,7 +267,7 @@ class LLMClient:
             return []
 
         try:
-            return self._call(lambda p: p.embed(texts))
+            return self._call(lambda p: p.embed(texts), operation="embed")
         except Exception as e:
             logger.error(f"LLM 嵌入调用失败: {e}", exc_info=True)
             raise
@@ -268,7 +310,8 @@ class LLMClient:
             response = self._call(
                 lambda p: p.chat_with_tools(
                     messages, tools, tool_choice, temperature, max_tokens
-                )
+                ),
+                operation="chat_with_tools",
             )
             return {
                 "content": response.content,

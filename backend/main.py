@@ -20,6 +20,7 @@ from backend.api.routes import register_routes
 from backend.config.json_formatter import request_id_var
 from backend.config.logging_config import setup_logging
 from backend.config.settings import get_settings
+from backend.monitoring import MetricsMiddleware, metrics_response
 
 # ---- 初始化配置（使用标准 logger，lifespan 中替换为配置版本） ----
 settings = get_settings()
@@ -82,6 +83,9 @@ async def add_request_id(request: Request, call_next):
 # ---- 请求日志中间件 ----
 app.add_middleware(RequestLoggingMiddleware)
 
+# ---- Prometheus 指标中间件（HTTP 请求计数与耗时） ----
+app.add_middleware(MetricsMiddleware)
+
 # ---- 速率限制中间件 ----
 if settings.RATE_LIMIT_ENABLED:
     try:
@@ -125,6 +129,12 @@ async def root():
         "health": "/health",
         "demo": "/demo",
     }
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus 抓取端点 — 暴露 HTTP/LLM/Token 指标（文本协议）"""
+    return metrics_response()
 
 
 # ==================== Demo 测试站点 ====================

@@ -21,6 +21,7 @@ def register_routes(app: FastAPI):
         ("jira", "jira", "/api/v1/jira"),         # JIRA 集成
         ("test_cases", "test_cases", "/api/v1/test-cases"),  # 测试用例管理
         ("agents", "agents", "/api/v1/agent"),    # Agent 执行（LangGraph + ReAct）
+        ("metrics", "metrics", "/api/v1/metrics"),  # 可观测性（Token 用量查询）
     ]
 
     for module_name, route_name, prefix in route_modules:

@@ -11,8 +11,25 @@ import httpx
 from openai import OpenAI
 
 from backend.llm.providers.base import BaseLLMProvider, LLMResponse
+from backend.monitoring.token_tracker import token_tracker
 
 logger = logging.getLogger("ai_rd_agent")
+
+
+def _record_usage(usage_obj: object, provider: str, operation: str) -> None:
+    """将 API 返回的 usage 记入 Token 追踪（仅接受真实整数，Mock 桩自动跳过）
+
+    usage 对象字段：prompt_tokens / completion_tokens（embeddings 无 completion）。
+    """
+    if usage_obj is None:
+        return
+    prompt = getattr(usage_obj, "prompt_tokens", 0)
+    completion = getattr(usage_obj, "completion_tokens", 0)
+    if not isinstance(prompt, int):
+        prompt = 0
+    if not isinstance(completion, int):
+        completion = 0
+    token_tracker.record(provider, operation, prompt, completion)
 
 
 class OpenAICompatibleProvider(BaseLLMProvider):
@@ -66,7 +83,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             stream=stream,
         )
         if stream:
+            # 流式响应不含 usage，Token 不记录（调用次数由 client 层指标覆盖）
             return self._stream_response(response)
+        _record_usage(getattr(response, "usage", None), self.name, "chat")
         return response.choices[0].message.content or ""
 
     def _stream_response(self, response) -> Iterator[str]:
@@ -113,6 +132,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
+            _record_usage(response.usage, self.name, "chat_with_tools")
 
         return LLMResponse(
             content=msg.content or "",
@@ -127,5 +147,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             model=self._embed_model,
             input=texts,
         )
+        # embeddings 的 usage 只有 prompt_tokens（无 completion_tokens）
+        _record_usage(getattr(response, "usage", None), self.name, "embed")
         embeddings = sorted(response.data, key=lambda x: x.index)
         return [item.embedding for item in embeddings]

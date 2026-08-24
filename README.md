@@ -43,6 +43,7 @@
 - LangGraph 多 Agent 协作：日志分析 → 循环检测 → 测试生成 → JIRA 创建，全链路自动执行
 - LLM 多 Provider 支持：DashScope / OpenAI / Ollama，可配置回退链（重试 + 熔断器保护）
 - Selenium 自动化测试 + AI 失败分析 + 测试用例自动生成
+- 可观测性：Prometheus 指标（HTTP 请求/LLM 调用/耗时）+ LLM Token 消耗追踪（`/metrics` 抓取，`/api/v1/metrics/tokens` 查询）
 
 ---
 
@@ -207,6 +208,8 @@ agent_autotest/
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/health` | 健康检查 |
+| GET | `/metrics` | Prometheus 指标抓取（HTTP/LLM 调用/Token 消耗） |
+| GET | `/api/v1/metrics/tokens` | LLM Token 消耗统计（JSON） |
 | GET | `/api/v1/knowledge/stats` | 知识库统计 |
 | POST | `/api/v1/knowledge/upload` | 上传文档并索引 |
 | POST | `/api/v1/knowledge/rebuild` | 重建向量库 |

@@ -22,6 +22,7 @@ _SKIP_AUTH_PREFIXES = (
     "/openapi.json",
     "/redoc",
     "/demo",
+    "/metrics",  # Prometheus 抓取端点（不含敏感业务数据，需免认证供 scraper 访问）
 )
 
 # 不需要认证的精确路径
